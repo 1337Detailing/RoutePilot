@@ -6,7 +6,6 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.util.AttributeSet;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -19,39 +18,27 @@ import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.plugins.PluginsHelper;
 import net.osmand.plus.plugins.monitoring.OsmandMonitoringPlugin;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
-
-/**
- * First RoutePilot-specific HUD.
- *
- * OsmAnd remains responsible for GPS acquisition and GPX track recording.
- * This view provides the simplified RoutePilot workflow on top of the map.
- */
 public class RoutePilotControlsView extends LinearLayout {
 
-    private static final int ACCENT = Color.rgb(24, 122, 255);
+    private static final int ACCENT = Color.rgb(10, 132, 255);
     private static final int DANGER = Color.rgb(255, 69, 58);
-    private static final int GLASS = Color.argb(215, 28, 28, 30);
-    private static final int GLASS_BUTTON = Color.argb(235, 58, 58, 60);
+    private static final int GLASS = Color.argb(230, 24, 24, 27);
+    private static final int GLASS_BUTTON = Color.argb(245, 44, 44, 48);
+    private static final int SECONDARY_TEXT = Color.argb(185, 255, 255, 255);
 
     private final OsmandApplication app;
     @Nullable
     private final MapActivity mapActivity;
 
+    private final TextView eyebrowView;
     private final TextView statusView;
     private final TextView mainButton;
     private final TextView reverseButton;
     private final TextView twoSidesButton;
 
     private boolean recording;
-    private long sessionStartedAt;
-    @Nullable
-    private File eventsFile;
+    private int reverseCount;
+    private int twoSidesCount;
 
     public RoutePilotControlsView(Context context) {
         this(context, null);
@@ -63,22 +50,27 @@ public class RoutePilotControlsView extends LinearLayout {
         mapActivity = context instanceof MapActivity ? (MapActivity) context : null;
 
         setOrientation(VERTICAL);
-        setPadding(dp(14), dp(12), dp(14), dp(14));
-        setBackground(roundRect(GLASS, 28));
-        setElevation(dp(12));
+        setPadding(dp(18), dp(16), dp(18), dp(18));
+        setBackground(roundRect(GLASS, 30));
+        setElevation(dp(18));
 
-        TextView title = label("RoutePilot", 20, Typeface.BOLD, Color.WHITE);
-        addView(title, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        eyebrowView = label("TOURNÉE", 11, Typeface.BOLD, ACCENT);
+        addView(eyebrowView, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
-        statusView = label("Prêt à enregistrer", 13, Typeface.NORMAL, Color.argb(190, 255, 255, 255));
+        TextView title = label("Nouvelle tournée", 23, Typeface.BOLD, Color.WHITE);
+        LayoutParams titleParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        titleParams.topMargin = dp(4);
+        addView(title, titleParams);
+
+        statusView = label("GPS prêt • aucun enregistrement", 13, Typeface.NORMAL, SECONDARY_TEXT);
         LayoutParams statusParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
-        statusParams.topMargin = dp(2);
-        statusParams.bottomMargin = dp(12);
+        statusParams.topMargin = dp(4);
+        statusParams.bottomMargin = dp(14);
         addView(statusView, statusParams);
 
         mainButton = actionButton("Commencer l’enregistrement", ACCENT);
         mainButton.setOnClickListener(v -> toggleRecording());
-        addView(mainButton, buttonParams());
+        addView(mainButton, new LayoutParams(LayoutParams.MATCH_PARENT, dp(58)));
 
         LinearLayout eventRow = new LinearLayout(context);
         eventRow.setOrientation(HORIZONTAL);
@@ -87,15 +79,15 @@ public class RoutePilotControlsView extends LinearLayout {
         eventRowParams.topMargin = dp(10);
         addView(eventRow, eventRowParams);
 
-        reverseButton = actionButton("Marche arrière", GLASS_BUTTON);
-        reverseButton.setOnClickListener(v -> flagEvent("REVERSE", "Marche arrière"));
-        LayoutParams half = new LayoutParams(0, dp(52), 1f);
+        reverseButton = actionButton("↶  Marche arrière", GLASS_BUTTON);
+        reverseButton.setOnClickListener(v -> flagEvent("REVERSE", "Marche arrière", Color.rgb(255, 159, 10)));
+        LayoutParams half = new LayoutParams(0, dp(54), 1f);
         half.rightMargin = dp(5);
         eventRow.addView(reverseButton, half);
 
-        twoSidesButton = actionButton("2 côtés", GLASS_BUTTON);
-        twoSidesButton.setOnClickListener(v -> flagEvent("TWO_SIDES", "2 côtés"));
-        LayoutParams half2 = new LayoutParams(0, dp(52), 1f);
+        twoSidesButton = actionButton("⇆  2 côtés", GLASS_BUTTON);
+        twoSidesButton.setOnClickListener(v -> flagEvent("TWO_SIDES", "2 côtés", Color.rgb(48, 209, 88)));
+        LayoutParams half2 = new LayoutParams(0, dp(54), 1f);
         half2.leftMargin = dp(5);
         eventRow.addView(twoSidesButton, half2);
 
@@ -103,22 +95,22 @@ public class RoutePilotControlsView extends LinearLayout {
     }
 
     private void toggleRecording() {
-        if (!recording) {
-            startRecording();
-        } else {
+        if (recording) {
             stopRecording();
+        } else {
+            startRecording();
         }
     }
 
     private void startRecording() {
         if (mapActivity == null) {
-            toast("Impossible de démarrer l’enregistrement");
+            toast("Impossible de démarrer la tournée");
             return;
         }
 
         OsmandMonitoringPlugin plugin = PluginsHelper.getPlugin(OsmandMonitoringPlugin.class);
         if (plugin == null) {
-            toast("Module d’enregistrement GPS indisponible");
+            toast("Moteur GPS indisponible");
             return;
         }
 
@@ -127,13 +119,15 @@ public class RoutePilotControlsView extends LinearLayout {
         }
 
         plugin.startRecording(mapActivity);
-        sessionStartedAt = System.currentTimeMillis();
-        eventsFile = prepareEventsFile(sessionStartedAt);
         recording = true;
+        reverseCount = 0;
+        twoSidesCount = 0;
 
-        mainButton.setText("Terminer l’enregistrement");
+        eyebrowView.setText("ENREGISTREMENT EN COURS");
+        eyebrowView.setTextColor(Color.rgb(48, 209, 88));
+        statusView.setText("Trace GPS active • 0 repère");
+        mainButton.setText("Terminer et sauvegarder");
         mainButton.setBackground(roundRect(DANGER, 18));
-        statusView.setText("Enregistrement GPS en cours");
         updateEventButtons(true);
         toast("Tournée démarrée");
     }
@@ -141,23 +135,27 @@ public class RoutePilotControlsView extends LinearLayout {
     private void stopRecording() {
         OsmandMonitoringPlugin plugin = PluginsHelper.getPlugin(OsmandMonitoringPlugin.class);
         if (plugin == null) {
-            toast("Module d’enregistrement GPS indisponible");
+            toast("Moteur GPS indisponible");
             return;
         }
 
-        plugin.saveCurrentTrack(() -> {
-            post(() -> {
-                recording = false;
-                mainButton.setText("Commencer l’enregistrement");
-                mainButton.setBackground(roundRect(ACCENT, 18));
-                statusView.setText("Tournée enregistrée");
-                updateEventButtons(false);
-                toast("Tournée sauvegardée");
-            });
-        }, mapActivity);
+        mainButton.setEnabled(false);
+        statusView.setText("Sauvegarde de la tournée…");
+
+        plugin.saveCurrentTrack(() -> post(() -> {
+            recording = false;
+            mainButton.setEnabled(true);
+            mainButton.setText("Commencer une nouvelle tournée");
+            mainButton.setBackground(roundRect(ACCENT, 18));
+            eyebrowView.setText("TOURNÉE SAUVEGARDÉE");
+            eyebrowView.setTextColor(ACCENT);
+            statusView.setText("Trace GPX enregistrée • " + totalFlags() + " repère" + (totalFlags() > 1 ? "s" : ""));
+            updateEventButtons(false);
+            toast("Tournée sauvegardée");
+        }), mapActivity);
     }
 
-    private void flagEvent(String type, String displayName) {
+    private void flagEvent(String type, String displayName, int color) {
         if (!recording) {
             toast("Commence d’abord une tournée");
             return;
@@ -169,55 +167,35 @@ public class RoutePilotControlsView extends LinearLayout {
             return;
         }
 
-        if (eventsFile == null) {
-            eventsFile = prepareEventsFile(sessionStartedAt > 0 ? sessionStartedAt : System.currentTimeMillis());
+        String description = "routepilot_event=" + type;
+        app.getSavingTrackHelper().insertPointData(
+                location.getLatitude(),
+                location.getLongitude(),
+                description,
+                displayName,
+                "RoutePilot",
+                color
+        );
+
+        if ("REVERSE".equals(type)) {
+            reverseCount++;
+        } else if ("TWO_SIDES".equals(type)) {
+            twoSidesCount++;
         }
 
-        if (eventsFile != null) {
-            appendEvent(eventsFile, type, location);
-        }
-
-        statusView.setText(displayName + " ajouté à la tournée");
-        toast(displayName + " enregistré");
+        statusView.setText(displayName + " ajouté • " + totalFlags() + " repère" + (totalFlags() > 1 ? "s" : ""));
+        toast(displayName + " ajouté à la tournée");
     }
 
-    @Nullable
-    private File prepareEventsFile(long startedAt) {
-        File dir = new File(app.getFilesDir(), "routepilot");
-        if (!dir.exists() && !dir.mkdirs()) {
-            return null;
-        }
-
-        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date(startedAt));
-        File file = new File(dir, "routepilot-events-" + stamp + ".csv");
-        if (!file.exists()) {
-            try (FileWriter writer = new FileWriter(file, true)) {
-                writer.write("session_started_at,event_time,type,latitude,longitude,accuracy\n");
-            } catch (IOException e) {
-                return null;
-            }
-        }
-        return file;
-    }
-
-    private void appendEvent(File file, String type, Location location) {
-        try (FileWriter writer = new FileWriter(file, true)) {
-            writer.write(sessionStartedAt + ","
-                    + System.currentTimeMillis() + ","
-                    + type + ","
-                    + location.getLatitude() + ","
-                    + location.getLongitude() + ","
-                    + location.getAccuracy() + "\n");
-        } catch (IOException e) {
-            toast("Impossible d’enregistrer le repère");
-        }
+    private int totalFlags() {
+        return reverseCount + twoSidesCount;
     }
 
     private void updateEventButtons(boolean enabled) {
         reverseButton.setEnabled(enabled);
         twoSidesButton.setEnabled(enabled);
-        reverseButton.setAlpha(enabled ? 1f : 0.45f);
-        twoSidesButton.setAlpha(enabled ? 1f : 0.45f);
+        reverseButton.setAlpha(enabled ? 1f : 0.38f);
+        twoSidesButton.setAlpha(enabled ? 1f : 0.38f);
     }
 
     private TextView actionButton(String text, int color) {
@@ -226,12 +204,8 @@ public class RoutePilotControlsView extends LinearLayout {
         view.setBackground(roundRect(color, 18));
         view.setClickable(true);
         view.setFocusable(true);
-        view.setPadding(dp(14), 0, dp(14), 0);
+        view.setPadding(dp(12), 0, dp(12), 0);
         return view;
-    }
-
-    private LayoutParams buttonParams() {
-        return new LayoutParams(LayoutParams.MATCH_PARENT, dp(54));
     }
 
     private TextView label(String text, int sizeSp, int style, int color) {
