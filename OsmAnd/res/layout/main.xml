@@ -22,29 +22,27 @@
 				android:layout_height="match_parent"
 				android:orientation="vertical" />
 
-			<include layout="@layout/map_hud_layout" />
-
-			<FrameLayout
-				android:layout_width="match_parent"
-				android:layout_height="wrap_content"
-				android:layout_gravity="bottom">
-
-				<View
-					android:layout_width="match_parent"
-					android:layout_height="1px" />
-
-			</FrameLayout>
-
-			<View
-				android:layout_width="match_parent"
-				android:layout_height="match_parent" />
+			<!-- Keep OsmAnd's HUD inflated for internal compatibility, but hide it completely. -->
+			<include
+				layout="@layout/map_hud_layout"
+				android:visibility="gone" />
 
 			<androidx.appcompat.widget.AppCompatImageView
 				android:id="@+id/bottomShadow"
 				android:layout_width="match_parent"
 				android:layout_height="10dp"
 				android:layout_gravity="bottom"
+				android:visibility="gone"
 				android:background="@drawable/bg_contextmenu_shadow_top_light" />
+
+			<net.osmand.plus.routepilot.RoutePilotTopBarView
+				android:id="@+id/routepilot_top_bar"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:layout_gravity="top"
+				android:layout_marginStart="14dp"
+				android:layout_marginEnd="14dp"
+				android:layout_marginTop="38dp" />
 
 			<net.osmand.plus.routepilot.RoutePilotControlsView
 				android:id="@+id/routepilot_controls"
@@ -53,12 +51,13 @@
 				android:layout_gravity="bottom"
 				android:layout_marginStart="14dp"
 				android:layout_marginEnd="14dp"
-				android:layout_marginBottom="18dp" />
+				android:layout_marginBottom="22dp" />
 
 		</FrameLayout>
 
 	</LinearLayout>
 
+	<!-- OsmAnd fragment containers remain available to the navigation engine. -->
 	<FrameLayout
 		android:layout_width="match_parent"
 		android:layout_height="match_parent">
@@ -83,23 +82,20 @@
 			android:layout_width="match_parent"
 			android:layout_height="match_parent" />
 
-		<View
-			android:layout_width="match_parent"
-			android:layout_height="match_parent" />
-
 	</FrameLayout>
 
+	<!-- Drawer kept in the hierarchy for OsmAnd internals, hidden from RoutePilot users. -->
 	<RelativeLayout
 		android:id="@+id/drawer_relative_layout"
-		android:layout_width="wrap_content"
+		android:layout_width="280dp"
 		android:layout_height="match_parent"
-		android:layout_gravity="start">
+		android:layout_gravity="start"
+		android:visibility="gone">
 
 		<ListView
 			android:id="@+id/menuItems"
 			android:layout_width="280dp"
 			android:layout_height="match_parent"
-			android:layout_gravity="start"
 			android:background="?attr/bg_color"
 			android:clipToPadding="false"
 			android:drawSelectorOnTop="false" />
