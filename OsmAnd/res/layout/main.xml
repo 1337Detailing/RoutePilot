@@ -22,7 +22,8 @@
 				android:layout_height="match_parent"
 				android:orientation="vertical" />
 
-			<!-- Keep OsmAnd's HUD inflated for internal compatibility, but hide it completely. -->
+			<!-- OsmAnd's HUD stays inflated so its internal view lookups still work,
+			     but the parent is hidden. RoutePilot owns the visible map controls. -->
 			<include
 				layout="@layout/map_hud_layout"
 				android:visibility="gone" />
@@ -57,10 +58,15 @@
 
 	</LinearLayout>
 
-	<!-- OsmAnd fragment containers remain available to the navigation engine. -->
+	<!-- This was the real problem: OsmAnd's full-screen overlay sat above RoutePilot,
+	     drew the old interface and consumed touches. Keep the required containers
+	     in the hierarchy for code lookups, but disable the whole visible overlay
+	     for the recorder-first RoutePilot UI. -->
 	<FrameLayout
+		android:id="@+id/routepilot_hidden_osmand_overlay"
 		android:layout_width="match_parent"
-		android:layout_height="match_parent">
+		android:layout_height="match_parent"
+		android:visibility="gone">
 
 		<FrameLayout
 			android:id="@+id/topFragmentContainer"
@@ -84,7 +90,7 @@
 
 	</FrameLayout>
 
-	<!-- Drawer kept in the hierarchy for OsmAnd internals, hidden from RoutePilot users. -->
+	<!-- Drawer kept only because OsmAnd still references these IDs internally. -->
 	<RelativeLayout
 		android:id="@+id/drawer_relative_layout"
 		android:layout_width="280dp"
