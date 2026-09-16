@@ -46,6 +46,15 @@
 				android:layout_gravity="bottom"
 				android:background="@drawable/bg_contextmenu_shadow_top_light" />
 
+			<net.osmand.plus.routepilot.RoutePilotControlsView
+				android:id="@+id/routepilot_controls"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:layout_gravity="bottom"
+				android:layout_marginStart="14dp"
+				android:layout_marginEnd="14dp"
+				android:layout_marginBottom="18dp" />
+
 		</FrameLayout>
 
 	</LinearLayout>
