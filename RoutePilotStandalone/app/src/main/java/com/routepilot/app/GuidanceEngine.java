@@ -43,7 +43,7 @@ final class GuidanceEngine {
 
     private final List<Point> points;
     private final List<Event> events;
-    private final int[] eventPointIndexes;
+    private final float[] eventAlongRouteM;
     private final float[] cumulative;
     private int progressIndex;
 
@@ -52,10 +52,10 @@ final class GuidanceEngine {
         this.events=events==null?Collections.emptyList():new ArrayList<>(events);
         cumulative=new float[this.points.size()];
         for(int i=1;i<this.points.size();i++) cumulative[i]=cumulative[i-1]+distance(this.points.get(i-1),this.points.get(i));
-        eventPointIndexes=new int[this.events.size()];
+        eventAlongRouteM=new float[this.events.size()];
         for(int i=0;i<this.events.size();i++) {
             Event e=this.events.get(i);
-            eventPointIndexes[i]=nearestIndexOnWholeRoute(e.lat,e.lon);
+            eventAlongRouteM[i]=nearestSegmentOnWholeRoute(e.lat,e.lon).alongRouteM;
         }
     }
 
@@ -85,9 +85,11 @@ final class GuidanceEngine {
 
         Event next=null;float eventD=Float.MAX_VALUE;
         for(int i=0;i<events.size();i++) {
-            int eventIndex=eventPointIndexes[i];
-            if(eventIndex+4<progressIndex)continue;
-            float along=Math.max(0,cumulative[eventIndex]-alongNow);
+            float eventAlong=eventAlongRouteM[i];
+            // Keep a tiny tolerance so an event remains visible while the truck is passing it,
+            // then discard it once it is clearly behind the current trace position.
+            if(eventAlong+8f<alongNow)continue;
+            float along=Math.max(0,eventAlong-alongNow);
             if(along<eventD){eventD=along;next=events.get(i);}
         }
         boolean off=distanceToTrace>45;
@@ -117,14 +119,9 @@ final class GuidanceEngine {
         return best==null?new SegmentMatch(progressIndex,0,Float.MAX_VALUE,cumulative[progressIndex]):best;
     }
 
-    private int nearestIndexOnWholeRoute(double lat,double lon) {
-        if(points.isEmpty())return 0;
-        int best=0;float bd=Float.MAX_VALUE;
-        for(int i=0;i<points.size();i++) {
-            Point p=points.get(i);float d=distance(lat,lon,p.lat,p.lon);
-            if(d<bd){bd=d;best=i;}
-        }
-        return best;
+    private SegmentMatch nearestSegmentOnWholeRoute(double lat,double lon) {
+        if(points.size()<2)return new SegmentMatch(0,0,Float.MAX_VALUE,0);
+        return nearestSegment(lat,lon,0,points.size()-2);
     }
 
     private static float distance(Point a,Point b){return distance(a.lat,a.lon,b.lat,b.lon);}
