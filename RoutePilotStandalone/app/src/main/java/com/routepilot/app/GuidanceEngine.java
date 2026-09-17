@@ -33,6 +33,14 @@ final class GuidanceEngine {
         }
     }
 
+    private static final class SegmentMatch {
+        final int index;
+        final float fraction, distanceM, alongRouteM;
+        SegmentMatch(int index,float fraction,float distanceM,float alongRouteM) {
+            this.index=index;this.fraction=fraction;this.distanceM=distanceM;this.alongRouteM=alongRouteM;
+        }
+    }
+
     private final List<Point> points;
     private final List<Event> events;
     private final int[] eventPointIndexes;
@@ -60,28 +68,26 @@ final class GuidanceEngine {
     State update(double lat,double lon) {
         if(!isUsable()) return new State(0,0,0,Float.MAX_VALUE,0,Float.MAX_VALUE,null,true,false);
         int start=Math.max(0,progressIndex-25);
-        int end=Math.min(points.size()-1,Math.max(progressIndex+350,350));
-        int candidate=start;float candidateD=Float.MAX_VALUE;
-        for(int i=start;i<=end;i++) {
-            Point p=points.get(i);float d=distance(lat,lon,p.lat,p.lon);
-            if(d<candidateD){candidateD=d;candidate=i;}
-        }
-        // Progress is monotonic and only accepts a plausible GPS match. Distance-to-trace,
-        // however, uses the nearest point in the local route window so a sparse recording
-        // does not falsely report the driver as off-route just because progressIndex lags.
-        if(candidate>=progressIndex&&candidateD<=60f) progressIndex=candidate;
-        float distanceToTrace=candidateD;
+        int end=Math.min(points.size()-2,Math.max(progressIndex+350,350));
+        SegmentMatch match=nearestSegment(lat,lon,start,end);
+
+        // Match against the line between recorded fixes, not only the fixes themselves.
+        // This prevents sparse but valid recordings from looking off-route halfway between points.
+        int candidate=match.fraction>=0.5f?match.index+1:match.index;
+        if(candidate>=progressIndex&&match.distanceM<=60f) progressIndex=candidate;
+        float distanceToTrace=match.distanceM;
+        float alongNow=Math.max(cumulative[progressIndex],match.alongRouteM);
 
         int target=progressIndex;float ahead=0;
         while(target<points.size()-1&&ahead<35){ahead+=distance(points.get(target),points.get(target+1));target++;}
-        float remaining=Math.max(0,totalDistanceM()-cumulative[progressIndex]);
-        int percent=totalDistanceM()<=1?0:Math.min(100,Math.round(cumulative[progressIndex]*100/totalDistanceM()));
+        float remaining=Math.max(0,totalDistanceM()-alongNow);
+        int percent=totalDistanceM()<=1?0:Math.min(100,Math.round(alongNow*100/totalDistanceM()));
 
         Event next=null;float eventD=Float.MAX_VALUE;
         for(int i=0;i<events.size();i++) {
             int eventIndex=eventPointIndexes[i];
             if(eventIndex+4<progressIndex)continue;
-            float along=Math.max(0,cumulative[eventIndex]-cumulative[progressIndex]);
+            float along=Math.max(0,cumulative[eventIndex]-alongNow);
             if(along<eventD){eventD=along;next=events.get(i);}
         }
         boolean off=distanceToTrace>45;
@@ -90,6 +96,26 @@ final class GuidanceEngine {
     }
 
     Point targetPoint(State s){return points.get(Math.max(0,Math.min(points.size()-1,s.targetIndex)));}
+
+    private SegmentMatch nearestSegment(double lat,double lon,int start,int end) {
+        SegmentMatch best=null;
+        for(int i=start;i<=end;i++) {
+            Point a=points.get(i),b=points.get(i+1);
+            double lat0=Math.toRadians(lat);
+            double mx=111320.0*Math.cos(lat0),my=110540.0;
+            double ax=(a.lon-lon)*mx,ay=(a.lat-lat)*my;
+            double bx=(b.lon-lon)*mx,by=(b.lat-lat)*my;
+            double vx=bx-ax,vy=by-ay;
+            double vv=vx*vx+vy*vy;
+            float t=vv<=0.0001?0f:(float)Math.max(0,Math.min(1,-(ax*vx+ay*vy)/vv));
+            double px=ax+t*vx,py=ay+t*vy;
+            float d=(float)Math.sqrt(px*px+py*py);
+            float segmentLength=cumulative[i+1]-cumulative[i];
+            float along=cumulative[i]+segmentLength*t;
+            if(best==null||d<best.distanceM)best=new SegmentMatch(i,t,d,along);
+        }
+        return best==null?new SegmentMatch(progressIndex,0,Float.MAX_VALUE,cumulative[progressIndex]):best;
+    }
 
     private int nearestIndexOnWholeRoute(double lat,double lon) {
         if(points.isEmpty())return 0;
