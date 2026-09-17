@@ -66,9 +66,11 @@ final class GuidanceEngine {
             Point p=points.get(i);float d=distance(lat,lon,p.lat,p.lon);
             if(d<candidateD){candidateD=d;candidate=i;}
         }
+        // Progress is monotonic and only accepts a plausible GPS match. Distance-to-trace,
+        // however, uses the nearest point in the local route window so a sparse recording
+        // does not falsely report the driver as off-route just because progressIndex lags.
         if(candidate>=progressIndex&&candidateD<=60f) progressIndex=candidate;
-        Point progressPoint=points.get(progressIndex);
-        float distanceToTrace=distance(lat,lon,progressPoint.lat,progressPoint.lon);
+        float distanceToTrace=candidateD;
 
         int target=progressIndex;float ahead=0;
         while(target<points.size()-1&&ahead<35){ahead+=distance(points.get(target),points.get(target+1));target++;}
