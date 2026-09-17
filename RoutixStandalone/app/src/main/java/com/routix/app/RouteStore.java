@@ -40,7 +40,7 @@ final class RouteStore {
     }
 
     boolean writeGpx(File out,List<Point> points,List<Event> events,long startedAt,String title){
-        try{StringBuilder x=new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Routix 2.0\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
+        try{StringBuilder x=new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Routix 2.1\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
             x.append("<metadata><name>").append(escape(title)).append("</name><time>").append(iso(startedAt)).append("</time></metadata>\n");
             for(Event e:copyE(events)){x.append("<wpt lat=\"").append(e.lat).append("\" lon=\"").append(e.lon).append("\">");if(e.time>0)x.append("<time>").append(iso(e.time)).append("</time>");x.append("<name>").append(escape(e.label)).append("</name><type>Routix</type><extensions><rp:event>").append(escape(e.type)).append("</rp:event><rp:accuracy>").append(e.accuracy).append("</rp:accuracy></extensions></wpt>\n");}
             x.append("<trk><name>").append(escape(title)).append("</name><trkseg>\n");for(Point p:copyP(points)){x.append("<trkpt lat=\"").append(p.lat).append("\" lon=\"").append(p.lon).append("\">");if(p.time>0)x.append("<time>").append(iso(p.time)).append("</time>");x.append("<extensions><rp:accuracy>").append(p.accuracy).append("</rp:accuracy></extensions></trkpt>\n");}x.append("</trkseg></trk></gpx>\n");
