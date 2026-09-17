@@ -110,7 +110,11 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private String approachInstruction="Calcul de l’itinéraire vers le départ…";
     private File lastRoute;
 
-    private GuidanceEngine guidance;
+    private GuidanceEngine guidance,approachGuidance;
+    private RouteArrowsOverlay routeArrows;
+    private long guidanceSession;
+    private boolean guidanceStartChecked;
+    private final List<GuidanceEngine.Event> guidanceEvents=new ArrayList<>();
     private RouteStore.Summary guidingRoute;
     private boolean guidingReverse;
     private TextView guideArrow,guideTitle,guideSubtitle,guideProgress,guideRemaining,guideNext,guideDeviation,guideEventAlert,guideSpeed;
@@ -120,6 +124,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private RouteStore.Summary previewSummary;
     private String lastEventAlertKey="";
     private final List<GuidanceEngine.Point> guidancePath=new ArrayList<>();
+    private final List<GuidanceEngine.Point> approachPath=new ArrayList<>();
 
     private final Runnable tick=new Runnable(){@Override public void run(){refreshRecordingUi();if(recording)timer.postDelayed(this,500);}};
 
@@ -232,7 +237,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     }
 
     private void drawSummary(RouteStore.Summary s,boolean reverse){
-        clearPreview();previewTrack=new Polyline();previewTrack.getOutlinePaint().setColor(traceColor());previewTrack.getOutlinePaint().setStrokeWidth(dp(9));previewTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);List<GeoPoint> pts=new ArrayList<>();if(reverse){for(int i=s.points.size()-1;i>=0;i--)pts.add(new GeoPoint(s.points.get(i).lat,s.points.get(i).lon));}else for(RouteStore.Point p:s.points)pts.add(new GeoPoint(p.lat,p.lon));previewTrack.setPoints(pts);map.getOverlays().add(previewTrack);addMarker(pts.get(0),"D",GREEN,"preview");for(RouteStore.Event e:s.events){String badge="REVERSE".equals(e.type)?"MA":"2C";addMarker(new GeoPoint(e.lat,e.lon),badge,"REVERSE".equals(e.type)?ORANGE:CYAN,"preview-event");}addMarker(pts.get(pts.size()-1),"A",RED,"preview");fitSummary(s);map.invalidate();
+        clearPreview();previewTrack=new Polyline();previewTrack.getOutlinePaint().setColor(traceColor());previewTrack.getOutlinePaint().setStrokeWidth(dp(9));previewTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);List<GeoPoint> pts=new ArrayList<>();if(reverse){for(int i=s.points.size()-1;i>=0;i--)pts.add(new GeoPoint(s.points.get(i).lat,s.points.get(i).lon));}else for(RouteStore.Point p:s.points)pts.add(new GeoPoint(p.lat,p.lon));previewTrack.setPoints(pts);map.getOverlays().add(previewTrack);addMarker(pts.get(0),"D",GREEN,"preview");for(RouteStore.Event e:s.events){String badge="REVERSE".equals(e.type)?"MA":"2C";addMarker(new GeoPoint(e.lat,e.lon),badge,"REVERSE".equals(e.type)?ORANGE:CYAN,"preview-event");}addMarker(pts.get(pts.size()-1),"A",RED,"preview");if(!guiding)fitSummary(s);map.invalidate();
     }
 
     private void fitSummary(RouteStore.Summary s){if(previewTrack!=null)map.post(()->{try{map.zoomToBoundingBox(previewTrack.getBounds(),true,dp(110));map.invalidate();}catch(Exception ignored){}});}
@@ -253,46 +258,121 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     }
 
     private void startGuidance(RouteStore.Summary s,boolean reverse){
-        stopPreviewPlayback();if(planSheet!=null){root.removeView(planSheet);planSheet=null;}if(page!=null)page.setVisibility(View.GONE);guiding=true;guidingRoute=s;guidingReverse=reverse;guidanceCameraFollow=true;lastEventAlertKey="";drawSummary(s,reverse);makeGuidanceEventsSubtle();map.setVisibility(View.VISIBLE);topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);dock.setVisibility(View.GONE);
-        List<GuidanceEngine.Point> gp=new ArrayList<>();if(reverse){for(int i=s.points.size()-1;i>=0;i--){RouteStore.Point p=s.points.get(i);gp.add(new GuidanceEngine.Point(p.lat,p.lon));}}else for(RouteStore.Point p:s.points)gp.add(new GuidanceEngine.Point(p.lat,p.lon));List<GuidanceEngine.Event> ge=new ArrayList<>();for(RouteStore.Event e:s.events)ge.add(new GuidanceEngine.Event(e.type,e.label,e.lat,e.lon));guidancePath.clear();guidancePath.addAll(gp);guidance=new GuidanceEngine(gp,ge);guidanceHud=buildGuidanceHud();root.addView(guidanceHud,new FrameLayout.LayoutParams(-1,-1));fade(guidanceHud);
-        RouteStore.Point start=reverse?s.points.get(s.points.size()-1):s.points.get(0);if(lastLocation!=null){float[] d=new float[1];Location.distanceBetween(lastLocation.getLatitude(),lastLocation.getLongitude(),start.lat,start.lon,d);approachingStart=d[0]>70;approachDistanceM=d[0];if(approachingStart)requestApproachRoute(lastLocation,new GeoPoint(start.lat,start.lon));}
-        if(lastLocation!=null)updateGuidance(lastLocation);else{guideTitle.setText("Position GPS en attente");guideSubtitle.setText("Le guidage démarrera dès que la position est disponible.");}
+        stopPreviewPlayback();if(planSheet!=null){root.removeView(planSheet);planSheet=null;}if(page!=null)page.setVisibility(View.GONE);
+        guidanceSession++;guidanceStartChecked=false;approachingStart=false;clearApproachRoute();
+        guiding=true;guidingRoute=s;guidingReverse=reverse;guidanceCameraFollow=true;lastEventAlertKey="";
+        drawSummary(s,reverse);liveTrack.setPoints(new ArrayList<>());
+        previewTrack.getOutlinePaint().setColor(BLUE);previewTrack.getOutlinePaint().setStrokeWidth(dp(11));
+        map.setVisibility(View.VISIBLE);topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);dock.setVisibility(View.GONE);
+        guidancePath.clear();
+        if(reverse){for(int i=s.points.size()-1;i>=0;i--){RouteStore.Point p=s.points.get(i);guidancePath.add(new GuidanceEngine.Point(p.lat,p.lon));}}
+        else for(RouteStore.Point p:s.points)guidancePath.add(new GuidanceEngine.Point(p.lat,p.lon));
+        guidanceEvents.clear();
+        map.getOverlays().removeIf(o->o instanceof Marker&&"preview-event".equals(((Marker)o).getRelatedObject()));
+        for(RouteStore.Event event:s.events){
+            int index=0;double best=Double.MAX_VALUE;
+            for(int i=0;i<s.points.size();i++){
+                RouteStore.Point p=s.points.get(i);
+                double d=event.time>0&&p.time>0?Math.abs((double)event.time-p.time):Math.hypot(event.lat-p.lat,(event.lon-p.lon)*Math.cos(Math.toRadians(event.lat)));
+                if(d<best){best=d;index=i;}
+            }
+            GuidanceEngine.Event e=new GuidanceEngine.Event(event.type,event.label,event.lat,event.lon,reverse?s.points.size()-1-index:index);guidanceEvents.add(e);
+            Marker marker=new Marker(map);marker.setPosition(new GeoPoint(e.lat,e.lon));marker.setAnchor(.5f,.5f);marker.setIcon(marker("REVERSE".equals(e.type)?"MA":"2C","REVERSE".equals(e.type)?ORANGE:CYAN));marker.setRelatedObject(e);map.getOverlays().add(marker);
+        }
+        guidance=new GuidanceEngine(guidancePath,guidanceEvents);
+        routeArrows=new RouteArrowsOverlay();routeArrows.setPoints(previewTrack.getActualPoints());map.getOverlays().add(routeArrows);
+        map.getOverlays().remove(me);map.getOverlays().add(me);
+        guidanceHud=buildGuidanceHud();root.addView(guidanceHud,new FrameLayout.LayoutParams(-1,-1));fade(guidanceHud);
+        if(lastLocation!=null)updateGuidance(lastLocation);else{guideTitle.setText("Position GPS en attente");guideSubtitle.setText("La carte te guidera avec des flèches.");}
     }
 
     private View buildGuidanceHud(){
         FrameLayout layer=new FrameLayout(this);layer.setClickable(false);
+        LinearLayout card=new LinearLayout(this);card.setGravity(Gravity.CENTER_VERTICAL);card.setPadding(dp(12),dp(8),dp(12),dp(8));card.setBackground(glass(Color.argb(235,15,18,25),22));
+        guideArrow=text("↑",32,Typeface.BOLD,CYAN);guideArrow.setGravity(Gravity.CENTER);card.addView(guideArrow,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);guideTitle=text("Suis les flèches",20,Typeface.BOLD,Color.WHITE);guideSubtitle=text("La trace s’efface après ton passage",12,Typeface.NORMAL,MUTED);info.addView(guideTitle);info.addView(guideSubtitle);card.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+        FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);cp.setMargins(dp(10),safeTop(),dp(10),0);layer.addView(card,cp);
+        guideEventAlert=pill("",Color.argb(245,255,159,10),14);guideEventAlert.setVisibility(View.GONE);FrameLayout.LayoutParams ep=new FrameLayout.LayoutParams(-1,dp(48),Gravity.TOP);ep.setMargins(dp(12),safeTop()+dp(80),dp(12),0);layer.addView(guideEventAlert,ep);
+        guideSpeed=new TextView(this);guideDeviation=new TextView(this);
+        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(dp(14),dp(10),dp(14),dp(10));bottom.setBackground(glass(Color.argb(235,15,18,25),24));
+        LinearLayout stats=new LinearLayout(this);stats.setGravity(Gravity.CENTER_VERTICAL);
+        guideRemaining=text("—",27,Typeface.BOLD,Color.WHITE);guideRemaining.setTag("DISTANCE RESTANTE");stats.addView(statCell(guideRemaining),new LinearLayout.LayoutParams(0,-2,1));
+        guideProgress=text("0 %",18,Typeface.BOLD,CYAN);stats.addView(guideProgress);bottom.addView(stats);
+        guideNext=text("Suis la ligne bleue et ses flèches",12,Typeface.NORMAL,MUTED);bottom.addView(guideNext,top(5));
+        LinearLayout controls=new LinearLayout(this);controls.setPadding(0,dp(8),0,0);
+        TextView follow=pill("Me suivre",accent(),12),resume=pill("Reprendre ici",GLASS2,11),quit=pill("Quitter",Color.argb(160,255,69,58),12);
+        follow.setOnClickListener(v->{guidanceCameraFollow=true;map.getController().setZoom(18.0);if(lastLocation!=null)updateGuidance(lastLocation);});
+        resume.setOnClickListener(v->resumeGuidanceHere());quit.setOnClickListener(v->confirmStopGuidance());
+        controls.addView(follow,new LinearLayout.LayoutParams(0,dp(48),1));controls.addView(resume,new LinearLayout.LayoutParams(0,dp(48),1));controls.addView(quit,new LinearLayout.LayoutParams(0,dp(48),.75f));bottom.addView(controls);
+        FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);bp.setMargins(dp(10),0,dp(10),safeBottom()+dp(8));layer.addView(bottom,bp);
+        map.getController().setZoom(18.0);return layer;
+    }
 
-        LinearLayout navCard=new LinearLayout(this);navCard.setGravity(Gravity.CENTER_VERTICAL);navCard.setPadding(dp(14),dp(12),dp(14),dp(12));navCard.setBackground(glass(Color.argb(218,15,18,25),30));navCard.setElevation(dp(22));
-        guideArrow=text("↑",46,Typeface.BOLD,Color.WHITE);guideArrow.setGravity(Gravity.CENTER);guideArrow.setBackground(glass(Color.argb(118,10,132,255),22));navCard.addView(guideArrow,new LinearLayout.LayoutParams(dp(72),dp(72)));
-        LinearLayout instruction=new LinearLayout(this);instruction.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams ilp=new LinearLayout.LayoutParams(0,-2,1);ilp.leftMargin=dp(14);guideTitle=text("Continue sur la trace",25,Typeface.BOLD,Color.WHITE);guideSubtitle=text("Guidage GPS actif",13,Typeface.BOLD,CYAN);instruction.addView(guideTitle);LinearLayout.LayoutParams gsp=new LinearLayout.LayoutParams(-1,-2);gsp.topMargin=dp(4);instruction.addView(guideSubtitle,gsp);navCard.addView(instruction,ilp);
-        FrameLayout.LayoutParams topP=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);topP.setMargins(dp(10),safeTop()+dp(4),dp(10),0);layer.addView(navCard,topP);
-
-        guideEventAlert=pill("",Color.argb(218,255,159,10),13);guideEventAlert.setVisibility(View.GONE);guideEventAlert.setElevation(dp(24));FrameLayout.LayoutParams alertP=new FrameLayout.LayoutParams(-1,dp(52),Gravity.TOP);alertP.setMargins(dp(18),safeTop()+dp(104),dp(18),0);layer.addView(guideEventAlert,alertP);
-
-        guideSpeed=text("0\nkm/h",18,Typeface.BOLD,Color.WHITE);guideSpeed.setGravity(Gravity.CENTER);guideSpeed.setBackground(glass(Color.argb(215,18,21,28),99));guideSpeed.setElevation(dp(18));FrameLayout.LayoutParams speedP=new FrameLayout.LayoutParams(dp(74),dp(74),Gravity.START|Gravity.BOTTOM);speedP.setMargins(dp(14),0,0,safeBottom()+dp(132));layer.addView(guideSpeed,speedP);
-
-        TextView locate=circle("◎",Color.argb(215,18,21,28));locate.setElevation(dp(18));locate.setOnClickListener(v->{guidanceCameraFollow=true;press(v);if(lastLocation!=null)updateGuidance(lastLocation);});FrameLayout.LayoutParams locateP=new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.BOTTOM);locateP.setMargins(0,0,dp(14),safeBottom()+dp(143));layer.addView(locate,locateP);
-
-        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(dp(16),dp(13),dp(16),dp(14));bottom.setBackground(glass(Color.argb(218,15,18,25),30));bottom.setElevation(dp(22));
-        LinearLayout stats=new LinearLayout(this);guideRemaining=stat("—","RESTANT");guideProgress=stat("0 %","PROGRESSION");guideDeviation=stat("—","ÉCART TRACE");stats.addView(statCell(guideRemaining),new LinearLayout.LayoutParams(0,-2,1));stats.addView(statCell(guideProgress),new LinearLayout.LayoutParams(0,-2,1));stats.addView(statCell(guideDeviation),new LinearLayout.LayoutParams(0,-2,1));bottom.addView(stats);
-        guideNext=text("Prochain repère : —",12,Typeface.BOLD,MUTED);LinearLayout.LayoutParams nx=new LinearLayout.LayoutParams(-1,-2);nx.topMargin=dp(9);nx.bottomMargin=dp(9);bottom.addView(guideNext,nx);
-        LinearLayout controls=new LinearLayout(this);TextView overview=pill("Vue route",GLASS2,11);TextView quit=pill("Quitter",Color.argb(185,255,69,58),11);overview.setOnClickListener(v->{guidanceCameraFollow=!guidanceCameraFollow;press(v);if(guidanceCameraFollow&&lastLocation!=null)updateGuidance(lastLocation);else{map.setMapOrientation(0);if(guidingRoute!=null)fitSummary(guidingRoute);}});quit.setOnClickListener(v->confirmStopGuidance());controls.addView(overview,weighted(1.15f,5));controls.addView(quit,weighted(.85f,0));bottom.addView(controls);
-        FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);bp.setMargins(dp(10),0,dp(10),safeBottom()+dp(8));layer.addView(bottom,bp);return layer;
+    private void resumeGuidanceHere(){
+        if(lastLocation==null||lastLocation.getAccuracy()>35){toast("Attends une position GPS précise");return;}
+        confirmSheet("Reprendre à ta position ?","La partie avant le point le plus proche sera marquée comme parcourue. Si la tournée passe plusieurs fois ici, vérifie le passage choisi.","Annuler","Reprendre ici",BLUE,()->{
+            if(!guiding||guidance==null||lastLocation==null)return;
+            if(!guidance.reposition(lastLocation.getLatitude(),lastLocation.getLongitude())){toast("Rapproche-toi du tracé (moins de 45 m)");return;}
+            approachingStart=false;guidanceStartChecked=true;clearApproachRoute();guidanceCameraFollow=true;updateGuidance(lastLocation);
+        });
     }
 
     private void updateGuidance(Location l){
         if(!guiding||guidance==null||!guidance.isUsable())return;
-        if(guideSpeed!=null)guideSpeed.setText(Math.max(0,Math.round(l.getSpeed()*3.6f))+"\nkm/h");
-        if(approachingStart&&guidingRoute!=null){
-            RouteStore.Point target=guidingReverse?guidingRoute.points.get(guidingRoute.points.size()-1):guidingRoute.points.get(0);float[] dd=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),target.lat,target.lon,dd);
-            if(dd[0]<=45){approachingStart=false;clearApproachRoute();toast("Départ rejoint • guidage de tournée actif");}
-            else{guideArrow.setText("➜");guideTitle.setText("Rejoins le départ");guideTitle.setTextColor(Color.WHITE);guideSubtitle.setText(formatDistance(approachDistanceM>0?approachDistanceM:dd[0])+" jusqu’au départ");guideProgress.setText("—");guideRemaining.setText(formatDistance(approachDistanceM>0?approachDistanceM:dd[0]));guideDeviation.setText("GPS");guideNext.setText(approachInstruction);if(guidanceCameraFollow){map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));map.getController().setZoom(17.8);if(l.hasBearing()&&l.getSpeed()>1.1f)map.setMapOrientation(-l.getBearing());}map.invalidate();return;}
+        if(!l.hasAccuracy()||l.getAccuracy()>35||android.os.SystemClock.elapsedRealtimeNanos()-l.getElapsedRealtimeNanos()>15000000000L){
+            guideArrow.setText("◎");guideTitle.setText("GPS imprécis ou en attente");guideTitle.setTextColor(ORANGE);
+            guideSubtitle.setText("Progression conservée • attends un signal fiable");hideEventAlert();return;
         }
-        GuidanceEngine.State state=guidance.update(l.getLatitude(),l.getLongitude());if(state.nextEvent!=null&&state.distanceToNextEventM<=60)showEventAlert(state.nextEvent.type,state.nextEvent.label);else hideEventAlert();guideProgress.setText(state.progressPercent+" %");guideRemaining.setText(formatDistance(state.remainingM));guideDeviation.setText(Math.round(state.distanceToTraceM)+" m");
-        if(state.finished){guideArrow.setText("✓");guideTitle.setText("Tournée terminée");guideTitle.setTextColor(GREEN);guideSubtitle.setText("Tu as atteint la fin de la trace");guideNext.setText("Arrivée atteinte");}
-        else if(state.offRoute){guideArrow.setText("↺");guideTitle.setText("Rejoins la trace");guideTitle.setTextColor(RED);guideSubtitle.setText(Math.round(state.distanceToTraceM)+" m hors parcours");guideNext.setText(state.nextEvent==null?"Retrouve la ligne bleue":"Ensuite : "+state.nextEvent.label);}
-        else{guideTitle.setTextColor(Color.WHITE);TurnCue cue=nextTurnCue(state);guideArrow.setText(cue.arrow);guideTitle.setText(cue.label);guideSubtitle.setText(cue.distanceM<18?"maintenant":"dans "+formatDistance(cue.distanceM));if(state.nextEvent!=null&&state.distanceToNextEventM<Float.MAX_VALUE)guideNext.setText(("REVERSE".equals(state.nextEvent.type)?"↶  ":"⇆  ")+state.nextEvent.label+" • "+formatDistance(state.distanceToNextEventM));else guideNext.setText("Suis la trace enregistrée");}
-        if(guidanceCameraFollow){GuidanceEngine.Point target=guidance.targetPoint(state);map.getController().animateTo(new GeoPoint(target.lat,target.lon));map.getController().setZoom(18.25);if(l.hasBearing()&&l.getSpeed()>1.1f)map.setMapOrientation(-l.getBearing());}map.invalidate();
+        if(!guidanceStartChecked){
+            guidanceStartChecked=true;
+            GuidanceEngine.Point first=guidancePath.get(0);float[] d=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,d);
+            approachingStart=d[0]>70;
+            if(approachingStart)requestApproachRoute(l,new GeoPoint(first.lat,first.lon));
+        }
+        if(approachingStart){
+            GuidanceEngine.Point first=guidancePath.get(0);float[] d=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,d);
+            if(d[0]<=25){approachingStart=false;clearApproachRoute();guidance.reset();toast("Départ rejoint");}
+            else{
+                float remaining=d[0];boolean alongRoad=false;
+                if(approachGuidance!=null){
+                    GuidanceEngine.State a=approachGuidance.update(l.getLatitude(),l.getLongitude(),l.getElapsedRealtimeNanos()/1000000,l.getAccuracy());
+                    alongRoad=!a.offRoute;remaining=alongRoad?a.remainingM:d[0];
+                    if(alongRoad&&approachTrack!=null)updateRemainingTrace(approachTrack,approachGuidance,a);
+                }
+                guideArrow.setText("↑");guideTitle.setText("Rejoins le départ");guideTitle.setTextColor(Color.WHITE);
+                guideRemaining.setText(formatDistance(remaining));guideProgress.setText("DÉPART");
+                guideSubtitle.setText(alongRoad?"Suis les flèches bleues":"Distance directe au départ • pas un itinéraire routier");
+                guideNext.setText("Déjà sur la tournée ? Appuie sur Reprendre ici");
+                if(previewTrack!=null)previewTrack.setEnabled(false);
+                if(routeArrows!=null&&!alongRoad)routeArrows.setPoints(Collections.emptyList());
+                followGuidanceCamera(l);map.invalidate();return;
+            }
+        }
+        GuidanceEngine.State state=guidance.update(l.getLatitude(),l.getLongitude(),l.getElapsedRealtimeNanos()/1000000,l.getAccuracy());
+        if(previewTrack!=null){previewTrack.setEnabled(true);updateRemainingTrace(previewTrack,guidance,state);}
+        if(state.nextEvent!=null&&state.distanceToNextEventM<=35&&!state.offRoute)showEventAlert(state.nextEvent.type,state.nextEvent.label);else hideEventAlert();
+        guideRemaining.setText(formatDistance(state.remainingM));guideProgress.setText(state.progressPercent+" %");
+        if(state.finished){guideArrow.setText("✓");guideTitle.setText("Tournée terminée");guideTitle.setTextColor(GREEN);guideSubtitle.setText("Arrivée atteinte");guideNext.setText("Tu peux quitter le guidage");}
+        else if(state.offRoute){guideArrow.setText("↩");guideTitle.setText("Rejoins la ligne bleue");guideTitle.setTextColor(ORANGE);guideSubtitle.setText(Math.round(state.distanceToTraceM)+" m du parcours suivi");guideNext.setText("Progression conservée • Reprendre ici pour te recaler");}
+        else{guideArrow.setText("↑");guideTitle.setText("Suis les flèches");guideTitle.setTextColor(Color.WHITE);guideSubtitle.setText("La trace derrière toi est effacée");guideNext.setText(state.nextEvent==null?"Ligne bleue = parcours restant":state.nextEvent.label+" dans "+formatDistance(state.distanceToNextEventM));}
+        map.getOverlays().removeIf(o->o instanceof Marker&&((Marker)o).getRelatedObject() instanceof GuidanceEngine.Event&&((GuidanceEngine.Event)((Marker)o).getRelatedObject()).routeIndex<state.nearestIndex);
+        followGuidanceCamera(l);map.invalidate();
+    }
+
+    private void updateRemainingTrace(Polyline line,GuidanceEngine engine,GuidanceEngine.State state){
+        List<GeoPoint> remaining=new ArrayList<>();
+        if(!state.finished){
+            remaining.add(new GeoPoint(state.position.lat,state.position.lon));
+            List<GuidanceEngine.Point> source=engine==guidance?guidancePath:approachPath;
+            for(int i=state.nearestIndex+1;i<source.size();i++)remaining.add(new GeoPoint(source.get(i).lat,source.get(i).lon));
+        }
+        line.setPoints(remaining);if(routeArrows!=null)routeArrows.setPoints(remaining);
+    }
+
+    private void followGuidanceCamera(Location l){
+        if(!guidanceCameraFollow)return;
+        map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));
+        if(l.hasBearing()&&l.hasSpeed()&&l.getSpeed()>1.5f)map.setMapOrientation(-l.getBearing());
     }
 
     private static final class TurnCue{final String arrow,label;final float distanceM;TurnCue(String arrow,String label,float distanceM){this.arrow=arrow;this.label=label;this.distanceM=distanceM;}}
@@ -314,7 +394,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private float normalizeTurn(float a){while(a>180)a-=360;while(a<-180)a+=360;return a;}
 
     private void confirmStopGuidance(){confirmSheet("Quitter le guidage ?","La tournée enregistrée ne sera pas modifiée.","Continuer","Quitter",RED,this::stopGuidance);}
-    private void stopGuidance(){guiding=false;guidanceCameraFollow=true;approachingStart=false;clearApproachRoute();guidance=null;guidancePath.clear();guidingRoute=null;guideEventAlert=null;lastEventAlertKey="";map.setMapOrientation(0);if(guidanceHud!=null){root.removeView(guidanceHud);guidanceHud=null;}clearPreview();showHistory();}
+    private void stopGuidance(){guidanceSession++;guiding=false;guidanceCameraFollow=true;approachingStart=false;clearApproachRoute();guidance=null;guidancePath.clear();guidingRoute=null;guideEventAlert=null;lastEventAlertKey="";map.setMapOrientation(0);if(guidanceHud!=null){root.removeView(guidanceHud);guidanceHud=null;}clearPreview();showHistory();}
 
     private View timeline(String badge,String title,String sub,int color){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);r.setPadding(0,dp(7),0,dp(7));TextView b=circle(badge,color);r.addView(b,new LinearLayout.LayoutParams(dp(34),dp(34)));LinearLayout t=new LinearLayout(this);t.setOrientation(LinearLayout.VERTICAL);t.addView(text(title,13,Typeface.BOLD,Color.WHITE));t.addView(text(sub,11,Typeface.NORMAL,MUTED));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.leftMargin=dp(10);r.addView(t,lp);r.setBackground(rippleLike());return r;}
 
@@ -445,7 +525,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private void setCollapsed(boolean value){collapsed=value;if(recordBody==null)return;if(collapsed){recordBody.setVisibility(View.GONE);collapseBtn.setText("⌃");}else{recordBody.setVisibility(View.VISIBLE);recordBody.setAlpha(1);collapseBtn.setText("⌄");}}
 
     private void clearPage(){stopPreviewPlayback();if(page!=null){root.removeView(page);page=null;}if(planSheet!=null){root.removeView(planSheet);planSheet=null;}clearPreview();}
-    private void clearPreview(){if(previewTrack!=null){map.getOverlays().remove(previewTrack);previewTrack=null;}map.getOverlays().removeIf(o->o instanceof Marker&&((Marker)o).getRelatedObject() instanceof String&&((String)((Marker)o).getRelatedObject()).startsWith("preview"));previewCursor=null;map.invalidate();}
+    private void clearPreview(){if(routeArrows!=null){map.getOverlays().remove(routeArrows);routeArrows=null;}map.getOverlays().removeIf(o->o instanceof Marker&&((Marker)o).getRelatedObject() instanceof GuidanceEngine.Event);if(previewTrack!=null){map.getOverlays().remove(previewTrack);previewTrack=null;}map.getOverlays().removeIf(o->o instanceof Marker&&((Marker)o).getRelatedObject() instanceof String&&((String)((Marker)o).getRelatedObject()).startsWith("preview"));previewCursor=null;map.invalidate();}
     private void clearLiveMarkers(){map.getOverlays().removeIf(o->o instanceof Marker&&"live".equals(((Marker)o).getRelatedObject()));map.invalidate();}
     private void addMarker(GeoPoint p,String badge,int color,String tag){Marker m=new Marker(map);m.setPosition(p);m.setAnchor(.5f,.5f);m.setIcon(marker(badge,color));m.setRelatedObject(tag);map.getOverlays().add(m);}
     private BitmapDrawable marker(String s,int color){int z=dp(40);Bitmap b=Bitmap.createBitmap(z,z,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setShadowLayer(dp(5),0,dp(2),Color.argb(130,0,0,0));p.setColor(color);c.drawCircle(z/2f,z/2f,z*.44f,p);p.clearShadowLayer();p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(2));p.setColor(Color.WHITE);c.drawCircle(z/2f,z/2f,z*.39f,p);p.setStyle(Paint.Style.FILL);p.setTextAlign(Paint.Align.CENTER);p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextSize(dp(s.length()>1?10:13));Paint.FontMetrics fm=p.getFontMetrics();c.drawText(s,z/2f,z/2f-(fm.ascent+fm.descent)/2f,p);return new BitmapDrawable(getResources(),b);}
@@ -509,8 +589,15 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private void applyToggle(FrameLayout track,View thumb,boolean on,boolean animate){int target=on?accent():Color.argb(120,85,88,98);if(!animate){track.setBackground(glass(target,99));thumb.setTranslationX(on?dp(20):0);return;}int from=on?Color.argb(120,85,88,98):accent();ValueAnimator colors=ValueAnimator.ofArgb(from,target);colors.setDuration(220);colors.addUpdateListener(a->track.setBackground(glass((Integer)a.getAnimatedValue(),99)));colors.start();thumb.animate().translationX(on?dp(20):0).scaleX(.92f).scaleY(.92f).setDuration(110).withEndAction(()->thumb.animate().scaleX(1).scaleY(1).setDuration(180).setInterpolator(new OvershootInterpolator(.8f)).start()).start();}
     private void setBackdropBlur(boolean on){if(Build.VERSION.SDK_INT>=31&&root!=null)root.setRenderEffect(on?RenderEffect.createBlurEffect(dp(8),dp(8),Shader.TileMode.CLAMP):null);}
 
-    private void requestApproachRoute(Location from,GeoPoint target){approachInstruction="Calcul de l’itinéraire routier…";new Thread(()->{List<GeoPoint> pts=new ArrayList<>();double roadDistance=-1;String instruction="Suis l’itinéraire bleu jusqu’au départ";try{String q=String.format(Locale.US,"https://router.project-osrm.org/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&steps=true",from.getLongitude(),from.getLatitude(),target.getLongitude(),target.getLatitude());HttpURLConnection c=(HttpURLConnection)new URL(q).openConnection();c.setConnectTimeout(7000);c.setReadTimeout(9000);c.setRequestProperty("User-Agent",getPackageName()+" Routix/1.0");BufferedReader br=new BufferedReader(new InputStreamReader(c.getInputStream()));StringBuilder b=new StringBuilder();String line;while((line=br.readLine())!=null)b.append(line);br.close();JSONObject json=new JSONObject(b.toString());JSONArray routes=json.optJSONArray("routes");if(routes!=null&&routes.length()>0){JSONObject route=routes.getJSONObject(0);roadDistance=route.optDouble("distance",-1);JSONArray coords=route.getJSONObject("geometry").getJSONArray("coordinates");for(int i=0;i<coords.length();i++){JSONArray p=coords.getJSONArray(i);pts.add(new GeoPoint(p.getDouble(1),p.getDouble(0)));}JSONArray legs=route.optJSONArray("legs");if(legs!=null&&legs.length()>0){JSONArray steps=legs.getJSONObject(0).optJSONArray("steps");if(steps!=null&&steps.length()>1){JSONObject st=steps.getJSONObject(1);String name=st.optString("name","");instruction=name.isEmpty()?"Continue vers le départ":"Continue sur "+name;}}}}catch(Exception ignored){}double finalDistance=roadDistance;String finalInstruction=instruction;List<GeoPoint> finalPts=pts;runOnUiThread(()->{if(!guiding||!approachingStart)return;clearApproachRoute();if(finalPts.size()<2){finalPts.add(new GeoPoint(from.getLatitude(),from.getLongitude()));finalPts.add(target);approachInstruction="Trajet routier indisponible • cap direct vers le départ";}else approachInstruction=finalInstruction;if(finalDistance>0)approachDistanceM=finalDistance;approachTrack=new Polyline();approachTrack.getOutlinePaint().setColor(BLUE);approachTrack.getOutlinePaint().setStrokeWidth(dp(8));approachTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);approachTrack.setPoints(finalPts);map.getOverlays().add(approachTrack);map.invalidate();if(guidanceCameraFollow)map.postDelayed(()->{try{map.zoomToBoundingBox(approachTrack.getBounds(),true,dp(90));}catch(Exception ignored){}},100);});}).start();}
-    private void clearApproachRoute(){if(approachTrack!=null){map.getOverlays().remove(approachTrack);approachTrack=null;if(map!=null)map.invalidate();}}
+    private void requestApproachRoute(Location from,GeoPoint target){final long session=guidanceSession;approachInstruction="Calcul de l’itinéraire routier…";new Thread(()->{List<GeoPoint> pts=new ArrayList<>();double roadDistance=-1;String instruction="Suis l’itinéraire bleu jusqu’au départ";try{String q=String.format(Locale.US,"https://router.project-osrm.org/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&steps=true",from.getLongitude(),from.getLatitude(),target.getLongitude(),target.getLatitude());HttpURLConnection c=(HttpURLConnection)new URL(q).openConnection();c.setConnectTimeout(7000);c.setReadTimeout(9000);c.setRequestProperty("User-Agent",getPackageName()+" Routix/1.0");BufferedReader br=new BufferedReader(new InputStreamReader(c.getInputStream()));StringBuilder b=new StringBuilder();String line;while((line=br.readLine())!=null)b.append(line);br.close();JSONObject json=new JSONObject(b.toString());JSONArray routes=json.optJSONArray("routes");if(routes!=null&&routes.length()>0){JSONObject route=routes.getJSONObject(0);roadDistance=route.optDouble("distance",-1);JSONArray coords=route.getJSONObject("geometry").getJSONArray("coordinates");for(int i=0;i<coords.length();i++){JSONArray p=coords.getJSONArray(i);pts.add(new GeoPoint(p.getDouble(1),p.getDouble(0)));}JSONArray legs=route.optJSONArray("legs");if(legs!=null&&legs.length()>0){JSONArray steps=legs.getJSONObject(0).optJSONArray("steps");if(steps!=null&&steps.length()>1){JSONObject st=steps.getJSONObject(1);String name=st.optString("name","");instruction=name.isEmpty()?"Continue vers le départ":"Continue sur "+name;}}}}catch(Exception ignored){}double finalDistance=roadDistance;String finalInstruction=instruction;List<GeoPoint> finalPts=pts;runOnUiThread(()->{if(!guiding||!approachingStart||session!=guidanceSession)return;clearApproachRoute();if(finalPts.size()<2){finalPts.add(new GeoPoint(from.getLatitude(),from.getLongitude()));finalPts.add(target);approachInstruction="Trajet routier indisponible • cap direct vers le départ";}else approachInstruction=finalInstruction;if(finalDistance>0){
+                    for(GeoPoint p:finalPts)approachPath.add(new GuidanceEngine.Point(p.getLatitude(),p.getLongitude()));
+                    approachGuidance=new GuidanceEngine(approachPath,Collections.emptyList());
+                    approachGuidance.reposition(from.getLatitude(),from.getLongitude());
+                    approachTrack=new Polyline();approachTrack.getOutlinePaint().setColor(BLUE);approachTrack.getOutlinePaint().setStrokeWidth(dp(11));approachTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);approachTrack.setPoints(finalPts);
+                    int arrowIndex=map.getOverlays().indexOf(routeArrows);map.getOverlays().add(Math.max(0,arrowIndex),approachTrack);
+                }
+                if(lastLocation!=null)updateGuidance(lastLocation);map.invalidate();});}).start();}
+    private void clearApproachRoute(){approachGuidance=null;approachPath.clear();if(approachTrack!=null){map.getOverlays().remove(approachTrack);approachTrack=null;if(map!=null)map.invalidate();}}
 
     private void recenter(){if(lastLocation==null){toast("Position GPS en attente");return;}if(guiding)guidanceCameraFollow=true;if(recording)recordingCameraFollow=true;map.getController().animateTo(new GeoPoint(lastLocation.getLatitude(),lastLocation.getLongitude()));if(guiding)map.getController().setZoom(17.4);else if(!recording)map.getController().setZoom(18.2);}
     private void ensureLocation(){if(hasLocation())enableLocation();else ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},LOCATION_PERMISSION);}
