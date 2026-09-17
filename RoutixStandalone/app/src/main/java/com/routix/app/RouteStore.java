@@ -31,9 +31,6 @@ final class RouteStore {
 
     File createRoute(List<Point> points,List<Event> events,long startedAt){
         RouteNormalizer.Result clean=RouteNormalizer.normalize(copyP(points));if(clean.points.size()<2)return null;
-        // A freshly recorded tour is already the user's ground truth. Clean impossible/noisy fixes,
-        // but never replace its geometry with an online-calculated road route. Imported GPX files
-        // still use RouteMatcher below because their provenance can be unknown.
         List<Point> p=clean.points;List<Event> e=copyE(events);
         String stamp=new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss",Locale.FRANCE).format(new Date(startedAt));File out=new File(routesDir(),"Routix_"+stamp+".gpx");int n=2;while(out.exists())out=new File(routesDir(),"Routix_"+stamp+"_"+(n++)+".gpx");
         if(!writeGpx(out,p,e,startedAt,"Tournée "+stamp))return null;
@@ -64,7 +61,9 @@ final class RouteStore {
     File importGpx(Uri uri){
         if(uri==null)return null;long stamp=System.currentTimeMillis();File original=new File(originalsDir(),"Original_"+stamp+".gpx"),out=new File(routesDir(),"Import_"+stamp+".gpx");
         try(InputStream in=context.getContentResolver().openInputStream(uri);FileOutputStream os=new FileOutputStream(original)){if(in==null)return null;byte[] b=new byte[8192];int n;while((n=in.read(b))>0)os.write(b,0,n);}catch(Exception ex){original.delete();return null;}
-        Summary raw=parse(original);RouteNormalizer.Result clean=RouteNormalizer.normalize(raw.points);if(clean.points.size()<2){original.delete();return null;}RouteMatcher.Result match=RouteMatcher.matchBlocking(clean.points,raw.events);List<Point> p=match.matched?match.points:clean.points;List<Event> e=match.matched?match.events:raw.events;long start=raw.firstTime>0?raw.firstTime:stamp;String title=match.matched?"Import Routix • routes reconnues":"Import optimisé Routix";
+        Summary raw=parse(original);RouteNormalizer.Result clean=RouteNormalizer.normalize(raw.points);if(clean.points.size()<2){original.delete();return null;}
+        boolean matchRoads=prefs.getBoolean("gpx_match_roads",true);RouteMatcher.Result match=matchRoads?RouteMatcher.matchBlocking(clean.points,raw.events):new RouteMatcher.Result(clean.points,raw.events,false,0);
+        List<Point> p=match.matched?match.points:clean.points;List<Event> e=match.matched?match.events:raw.events;long start=raw.firstTime>0?raw.firstTime:stamp;String title=match.matched?"Import Routix • routes reconnues":"Import optimisé Routix";
         try{archive.captureAs(out,original,title,"Fichier importé original");}catch(Exception ex){original.delete();return null;}if(!writeGpx(out,p,e,start,title)){original.delete();return null;}prefs.edit().putString("original_"+out.getName(),original.getAbsolutePath()).apply();putImportStats(out,clean,match,p.size(),Math.max(0,e.size()-raw.events.size()));return out;
     }
     private void putImportStats(File out,RouteNormalizer.Result c,RouteMatcher.Result m,int output,int generated){prefs.edit().putInt("import_input_"+out.getName(),c.inputCount).putInt("import_output_"+out.getName(),output).putInt("import_invalid_"+out.getName(),c.invalidRemoved).putInt("import_duplicates_"+out.getName(),c.duplicateRemoved).putInt("import_simplified_"+out.getName(),c.simplifiedRemoved).putBoolean("import_matched_"+out.getName(),m.matched).putInt("import_confidence_"+out.getName(),(int)Math.round(m.confidence*100)).putInt("import_generated_steps_"+out.getName(),Math.max(0,generated)).apply();}
