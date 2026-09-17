@@ -63,3 +63,13 @@ Ajouts utiles : rappels vocaux à moins de 55 m d'un repère (sans réseau si un
 Le workflow existant lance `gradle :app:testDebugUnitTest :app:assembleDebug`. Les tests couvrent les boucles, retours dans une même rue, reprise monotone, mauvais GPS, checkpoint SQLite, marqueurs GPX namespacés, rotation au nord et replay algorithmique de trente minutes avec restauration à vingt minutes. Les contrôles de layout couvrent les quatre onglets sur 320, 390 et 430 dp.
 
 À vérifier sur appareil : collecte de 45–60 minutes, écran éteint, passage à Waze puis retour, perte réseau, GPS désactivé/réactivé, changement jour/nuit, pack Mapsforge terminé, rapport après interruption. Le contrôle GitHub Dependency Review échoue actuellement parce que le Dependency graph du dépôt est désactivé ; ce contrôle distinct n'a pas été retiré.
+
+## Durcissement final après audit
+
+- La progression de guidage n'écrit plus SQLite à chaque fix GPS : les checkpoints sont bornés dans le temps/la distance, avec écriture forcée lors d'une reprise, du retrait de la tâche ou de l'arrêt du service.
+- Les overlays de route sont échantillonnés avant rendu et les mises à jour MapLibre identiques sont ignorées, afin d'éviter les allocations massives sur les GPX bruts très denses.
+- L'activité ne possède plus aucune interface/listener GPS hérité : `TrackingService` reste l'unique propriétaire de l'abonnement de localisation.
+- Les sessions de guidage orphelines sont nettoyées, le TTS est alloué à la demande puis libéré, et les échecs de sauvegarde persistante sont journalisés.
+- Le replay algorithmique de guidage couvre désormais une heure avec plusieurs restaurations de processus.
+- Le workflow génère explicitement `~/.android/debug.keystore` avant Gradle et le persiste sous la clé de cache `routix-debug-signing-v2`. Les APK CI antérieurs à cette correction pouvaient être signés avec des clés debug éphémères ; la chaîne de mises à jour stable commence avec le premier build `master` utilisant ce cache.
+
