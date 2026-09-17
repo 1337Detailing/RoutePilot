@@ -52,10 +52,12 @@ final class RouteStore {
 
     private final Context context;
     private final SharedPreferences prefs;
+    final RouteArchive archive;
 
     RouteStore(Context context, SharedPreferences prefs) {
         this.context=context.getApplicationContext();
         this.prefs=prefs;
+        archive=new RouteArchive(context);
     }
 
     File routesDir() {
@@ -109,7 +111,9 @@ final class RouteStore {
                 x.append("<time>").append(iso(p.time)).append("</time><extensions><rp:accuracy>").append(p.accuracy).append("</rp:accuracy></extensions></trkpt>\n");
             }
             x.append("</trkseg></trk></gpx>\n");
-            try(FileOutputStream o=new FileOutputStream(out)) { o.write(x.toString().getBytes(StandardCharsets.UTF_8)); }
+            boolean route=out.getParentFile().equals(routesDir());
+            if(route&&out.exists())archive.capture(out,displayName(out),"Avant modification du tracé");
+            RouteArchive.atomic(out,x.toString().getBytes(StandardCharsets.UTF_8));
             return true;
         } catch(Exception e) { return false; }
     }
@@ -178,6 +182,7 @@ final class RouteStore {
         List<Event> finalEvents=matched.matched?matched.events:raw.events;
         long started=raw.firstTime>0?raw.firstTime:stamp;
         String title=matched.matched?"Import Routix • routes reconnues":"Import optimisé Routix";
+        try{archive.captureAs(out,original,title,"Fichier importé original");}catch(Exception e){original.delete();return null;}
         if(!writeGpx(out,finalPoints,finalEvents,started,title)) { original.delete(); return null; }
 
         prefs.edit()
@@ -207,7 +212,24 @@ final class RouteStore {
         return f.getName().replace("Routix_","Tournée ").replace("Import_","Import ").replace(".gpx","").replace('_',' ');
     }
 
-    void rename(File f,String name) { if(f!=null&&name!=null&&!name.trim().isEmpty()) prefs.edit().putString("route_name_"+f.getName(),name.trim()).apply(); }
+    void rename(File f,String name) {
+        if(f!=null&&name!=null&&!name.trim().isEmpty()){
+            try{archive.capture(f,displayName(f),"Avant renommage");}catch(Exception e){android.widget.Toast.makeText(context,"Renommage annulé : sauvegarde impossible",android.widget.Toast.LENGTH_LONG).show();return;}
+            prefs.edit().putString("route_name_"+f.getName(),name.trim()).apply();
+        }
+    }
+
+    boolean restore(File route,RouteArchive.Version version){
+        try{
+            byte[] content=archive.content(version);
+            File check=new File(context.getCacheDir(),"restore-check-"+java.util.UUID.randomUUID()+".gpx");
+            RouteArchive.atomic(check,content);Summary validated=parse(check);check.delete();
+            if(validated.points.size()<2)return false;
+            archive.capture(route,displayName(route),"Avant restauration");
+            RouteArchive.atomic(route,content);
+            prefs.edit().putString("route_name_"+route.getName(),version.name).commit();return true;
+        }catch(Exception e){return false;}
+    }
 
     boolean delete(File f) {
         if(f==null)return false;

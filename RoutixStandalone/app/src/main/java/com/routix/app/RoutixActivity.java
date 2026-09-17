@@ -90,6 +90,9 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
 
     private SharedPreferences prefs;
     private RouteStore store;
+    private RouteTools routeTools;
+    private DumpCheckpoint dumpCheckpoint;
+    private boolean dumpReturnRequestPending;
     private WorkHoursStore hoursStore;
     private FrameLayout root;
     private MapView map;
@@ -138,6 +141,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
         getWindow().setNavigationBarColor(BG);
         prefs=getSharedPreferences("routix",MODE_PRIVATE);
         store=new RouteStore(this,prefs);
+        routeTools=new RouteTools(this,store,prefs);
         hoursStore=new WorkHoursStore(prefs);
         lm=(LocationManager)getSystemService(LOCATION_SERVICE);
         applyKeepScreen();
@@ -159,6 +163,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
         ensureLocation();
         prefs.edit().remove("compact_ui").remove("reduce_motion").apply();
         root.postDelayed(this::checkDraftRecovery,650);
+        root.postDelayed(()->{if(!recording&&DumpCheckpoint.load(prefs)!=null)offerDumpRecovery();},1300);
     }
 
     private void buildMap(){
@@ -215,6 +220,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
 
     private View historyPage(){
         LinearLayout p=pageBase();LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);LinearLayout hb=new LinearLayout(this);hb.setOrientation(LinearLayout.VERTICAL);hb.addView(text("Tournées",30,Typeface.BOLD,Color.WHITE));hb.addView(text(store.routeFiles().size()+" enregistrée(s) • plans • relecture guidée",12,Typeface.NORMAL,MUTED));head.addView(hb,new LinearLayout.LayoutParams(0,-2,1));TextView plus=circle("＋",accent());plus.setOnClickListener(v->{press(v);showToursActionSheet();});head.addView(plus,new LinearLayout.LayoutParams(dp(46),dp(46)));p.addView(head);
+        TextView tools=pill("Calendrier · Rues · Outils",GLASS2,13);tools.setOnClickListener(v->routeTools.library());p.addView(tools,new LinearLayout.LayoutParams(-1,dp(46)));
         EditText search=new EditText(this);search.setHint("Rechercher une tournée");search.setHintTextColor(Color.argb(115,255,255,255));search.setTextColor(Color.WHITE);search.setTextSize(14);search.setSingleLine(true);search.setPadding(dp(15),0,dp(15),0);search.setBackground(glass(GLASS2,18));LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(-1,dp(48));sl.topMargin=dp(15);sl.bottomMargin=dp(12);p.addView(search,sl);
         ScrollView sc=new ScrollView(this);LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);sc.addView(list);p.addView(sc,new LinearLayout.LayoutParams(-1,0,1));List<RouteStore.Summary> summaries=store.summaries();renderHistory(list,summaries,"");search.addTextChangedListener(new SimpleWatcher(q->renderHistory(list,summaries,q)));return p;
     }
@@ -236,6 +242,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
         Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(14),0,dp(14),dp(14));LinearLayout panel=sheetPanel(store.displayName(s.file),formatDuration(s.durationMs)+" • "+formatDistance(s.distanceM));
         String[] labels={"▣  Voir le plan","▶  Démarrer la tournée","✎  Renommer","↗  Exporter / partager","⧉  Dupliquer",store.isFavorite(s.file)?"☆  Retirer des favoris":"★  Ajouter aux favoris","⌫  Supprimer"};
         for(int i=0;i<labels.length;i++){final int index=i;TextView action=sheetAction(labels[i],i==6?Color.argb(120,255,69,58):Color.argb(48,255,255,255));action.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(()->{if(index==0)openPlan(s);else if(index==1)chooseGuidanceDirection(s);else if(index==2)rename(s.file);else if(index==3)share(s.file);else if(index==4){if(store.duplicate(s.file)!=null){toast("Tournée dupliquée");showHistory();}}else if(index==5){store.setFavorite(s.file,!store.isFavorite(s.file));showHistory();}else deleteRoute(s.file);},130);});panel.addView(action,bottom(7));}
+        TextView tools=sheetAction("Outils · Comparaison · Historique",BLUE);tools.setOnClickListener(v->{d.dismiss();routeTools.route(s);});panel.addView(tools,bottom(7));
         presentBottomSheet(d,shell,panel);
     }
 
@@ -274,6 +281,10 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     }
 
     private void startGuidance(RouteStore.Summary s,boolean reverse){
+        if(DumpCheckpoint.load(prefs)!=null){offerDumpRecovery();return;}
+        startGuidance(s,reverse,null);
+    }
+    private void startGuidance(RouteStore.Summary s,boolean reverse,DumpCheckpoint checkpoint){
         stopPreviewPlayback();if(planSheet!=null){root.removeView(planSheet);planSheet=null;}if(page!=null)page.setVisibility(View.GONE);
         guidanceSession++;guidanceStartChecked=false;approachingStart=false;clearApproachRoute();
         guiding=true;guidingRoute=s;guidingReverse=reverse;guidanceCameraFollow=true;lastEventAlertKey="";
@@ -296,7 +307,11 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
             Marker marker=new Marker(map);marker.setPosition(new GeoPoint(e.lat,e.lon));marker.setAnchor(.5f,.5f);marker.setIcon(marker("REVERSE".equals(e.type)?"MA":"2C","REVERSE".equals(e.type)?ORANGE:CYAN));marker.setRelatedObject(e);map.getOverlays().add(marker);
         }
         guidance=new GuidanceEngine(guidancePath,guidanceEvents);
+        dumpCheckpoint=checkpoint;
+        dumpReturnRequestPending=checkpoint!=null&&checkpoint.returning;
+        if(checkpoint!=null){guidance.restoreProgress(checkpoint.progress);guidanceStartChecked=true;approachingStart=checkpoint.returning;}
         routeArrows=new RouteArrowsOverlay();routeArrows.setPoints(previewTrack.getActualPoints());map.getOverlays().add(routeArrows);
+        if(checkpoint!=null)updateRemainingTrace(previewTrack,guidance,guidance.update(checkpoint.lat,checkpoint.lon,android.os.SystemClock.elapsedRealtime(),5));
         map.getOverlays().remove(me);map.getOverlays().add(me);
         guidanceHud=buildGuidanceHud();root.addView(guidanceHud,new FrameLayout.LayoutParams(-1,-1));fade(guidanceHud);
         if(lastLocation!=null)updateGuidance(lastLocation);else{guideTitle.setText("Position GPS en attente");guideSubtitle.setText("La carte te guidera avec des flèches.");}
@@ -320,11 +335,13 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
         follow.setOnClickListener(v->{guidanceCameraFollow=true;map.getController().setZoom(18.0);if(lastLocation!=null)updateGuidance(lastLocation);});
         resume.setOnClickListener(v->resumeGuidanceHere());quit.setOnClickListener(v->confirmStopGuidance());
         controls.addView(follow,new LinearLayout.LayoutParams(0,dp(48),1));controls.addView(resume,new LinearLayout.LayoutParams(0,dp(48),1));controls.addView(quit,new LinearLayout.LayoutParams(0,dp(48),.75f));bottom.addView(controls);
+        TextView dump=pill("Point de vidage / Retour à la tournée",GLASS2,12);dump.setOnClickListener(v->dumpMenu());bottom.addView(dump,new LinearLayout.LayoutParams(-1,dp(44)));
         FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);bp.setMargins(dp(10),0,dp(10),safeBottom()+dp(8));layer.addView(bottom,bp);
         map.getController().setZoom(18.0);return layer;
     }
 
     private void resumeGuidanceHere(){
+        if(dumpCheckpoint!=null){toast("Reviens au point de reprise via Vidage / Retour");return;}
         if(lastLocation==null||lastLocation.getAccuracy()>35){toast("Attends une position GPS précise");return;}
         confirmSheet("Reprendre à ta position ?","La partie avant le point le plus proche sera marquée comme parcourue. Si la tournée passe plusieurs fois ici, vérifie le passage choisi.","Annuler","Reprendre ici",BLUE,()->{
             if(!guiding||guidance==null||lastLocation==null)return;
@@ -339,6 +356,10 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
             guideArrow.setText("◎");guideTitle.setText("GPS imprécis ou en attente");guideTitle.setTextColor(ORANGE);
             guideSubtitle.setText("Progression conservée • attends un signal fiable");hideEventAlert();return;
         }
+        if(dumpCheckpoint!=null&&!dumpCheckpoint.returning){
+            guideArrow.setText("Ⅱ");guideTitle.setText("Collecte en pause · vidage");guideTitle.setTextColor(ORANGE);guideSubtitle.setText("Point de reprise enregistré sur ce téléphone");guideRemaining.setText(formatDistance(guidance.totalDistanceM()-guidance.progressM()));guideProgress.setText("PAUSE");guideNext.setText("Vidage / Retour pour rejoindre la tournée");hideEventAlert();followGuidanceCamera(l);return;
+        }
+        if(dumpCheckpoint!=null&&dumpReturnRequestPending){dumpReturnRequestPending=false;requestApproachRoute(l,new GeoPoint(dumpCheckpoint.lat,dumpCheckpoint.lon));}
         if(!guidanceStartChecked){
             guidanceStartChecked=true;
             GuidanceEngine.Point first=guidancePath.get(0);float[] d=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,d);
@@ -346,8 +367,8 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
             if(approachingStart)requestApproachRoute(l,new GeoPoint(first.lat,first.lon));
         }
         if(approachingStart){
-            GuidanceEngine.Point first=guidancePath.get(0);float[] d=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,d);
-            if(d[0]<=25){approachingStart=false;clearApproachRoute();guidance.reset();toast("Départ rejoint");}
+            GuidanceEngine.Point first=dumpCheckpoint==null?guidancePath.get(0):new GuidanceEngine.Point(dumpCheckpoint.lat,dumpCheckpoint.lon);float[] d=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,d);
+            if(d[0]<=25){approachingStart=false;clearApproachRoute();if(dumpCheckpoint==null){guidance.reset();toast("Départ rejoint");}else{guidance.restoreProgress(dumpCheckpoint.progress);dumpCheckpoint=null;DumpCheckpoint.clear(prefs);toast("Point rejoint · collecte reprise");}}
             else{
                 float remaining=d[0];boolean alongRoad=false;
                 if(approachGuidance!=null){
@@ -355,10 +376,10 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
                     alongRoad=!a.offRoute;remaining=alongRoad?a.remainingM:d[0];
                     if(alongRoad&&approachTrack!=null)updateRemainingTrace(approachTrack,approachGuidance,a);
                 }
-                guideArrow.setText("↑");guideTitle.setText("Rejoins le départ");guideTitle.setTextColor(Color.WHITE);
+                guideArrow.setText("↑");guideTitle.setText(dumpCheckpoint==null?"Rejoins le départ":"Retour au point de reprise");guideTitle.setTextColor(Color.WHITE);
                 guideRemaining.setText(formatDistance(remaining));guideProgress.setText("DÉPART");
-                guideSubtitle.setText(alongRoad?"Suis les flèches bleues":"Distance directe au départ • pas un itinéraire routier");
-                guideNext.setText("Déjà sur la tournée ? Appuie sur Reprendre ici");
+                guideSubtitle.setText(alongRoad?"Suis les flèches bleues":"Distance directe au point • pas un itinéraire routier");
+                guideNext.setText(dumpCheckpoint==null?"Déjà sur la tournée ? Appuie sur Reprendre ici":"Progression de collecte conservée pendant le retour");
                 if(previewTrack!=null)previewTrack.setEnabled(false);
                 if(routeArrows!=null&&!alongRoad)routeArrows.setPoints(Collections.emptyList());
                 followGuidanceCamera(l);map.invalidate();return;
@@ -409,8 +430,33 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private float pathBearing(GuidanceEngine.Point a,GuidanceEngine.Point b){double lat1=Math.toRadians(a.lat),lat2=Math.toRadians(b.lat),dLon=Math.toRadians(b.lon-a.lon);double y=Math.sin(dLon)*Math.cos(lat2),x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);return (float)Math.toDegrees(Math.atan2(y,x));}
     private float normalizeTurn(float a){while(a>180)a-=360;while(a<-180)a+=360;return a;}
 
-    private void confirmStopGuidance(){confirmSheet("Quitter le guidage ?","La tournée enregistrée ne sera pas modifiée.","Continuer","Quitter",RED,this::stopGuidance);}
-    private void stopGuidance(){guidanceSession++;guiding=false;guidanceCameraFollow=true;approachingStart=false;clearApproachRoute();guidance=null;guidancePath.clear();guidingRoute=null;guideEventAlert=null;lastEventAlertKey="";map.setMapOrientation(0);if(guidanceHud!=null){root.removeView(guidanceHud);guidanceHud=null;}clearPreview();showHistory();}
+    private void confirmStopGuidance(){confirmSheet("Quitter le guidage ?",dumpCheckpoint==null?"La tournée enregistrée ne sera pas modifiée.":"Le point de reprise après vidage restera sauvegardé.","Continuer","Quitter",RED,this::stopGuidance);}
+    private void stopGuidance(){guidanceSession++;guiding=false;dumpCheckpoint=null;guidanceCameraFollow=true;approachingStart=false;clearApproachRoute();guidance=null;guidancePath.clear();guidingRoute=null;guideEventAlert=null;lastEventAlertKey="";map.setMapOrientation(0);if(guidanceHud!=null){root.removeView(guidanceHud);guidanceHud=null;}clearPreview();showHistory();}
+
+    void startToolGuidance(RouteStore.Summary s){chooseGuidanceDirection(s);}
+    void refreshToolHistory(){showHistory();}
+    private void dumpMenu(){
+        if(!guiding||guidance==null)return;
+        if(dumpCheckpoint==null){
+            if(approachingStart||lastLocation==null||!lastLocation.hasAccuracy()||lastLocation.getAccuracy()>25||android.os.SystemClock.elapsedRealtimeNanos()-lastLocation.getElapsedRealtimeNanos()>15000000000L){toast("Rejoins la tournée avec une position GPS précise avant le vidage");return;}
+            GuidanceEngine.Point anchor=guidance.pointAt(guidance.progressM());float[] distance=new float[1];Location.distanceBetween(lastLocation.getLatitude(),lastLocation.getLongitude(),anchor.lat,anchor.lon,distance);if(distance[0]>45){toast("Rejoins le tracé avant de mémoriser le départ au vidage");return;}
+            confirmSheet("Partir au vidage ?","Le point où tu quittes la collecte et l’avancement seront sauvegardés. Appuie sur Vidage / Retour après avoir vidé le camion.","Annuler","Mémoriser et partir",BLUE,()->{
+                try{DumpCheckpoint cp=new DumpCheckpoint(guidingRoute.file.getName(),StreetIndex.fingerprint(guidingRoute.file),guidingReverse,guidance.progressM(),anchor.lat,anchor.lon,false);if(!cp.save(prefs)){toast("Sauvegarde impossible : collecte inchangée");return;}dumpCheckpoint=cp;updateGuidance(lastLocation);}catch(Exception e){toast("Impossible de sauvegarder ce point");}
+            });return;
+        }
+        confirmSheet("Retour à la tournée","Le retour vise le point où tu as quitté la collecte. La progression restera figée jusqu’à ce point. Le trajet routier nécessite une connexion.","Rester en pause","Rejoindre le point",BLUE,()->{
+            if(lastLocation==null){toast("Position GPS en attente");return;}
+            DumpCheckpoint returning=dumpCheckpoint.returning();if(!returning.save(prefs)){toast("Sauvegarde impossible");return;}dumpCheckpoint=returning;approachingStart=true;guidanceStartChecked=true;guidanceCameraFollow=true;clearApproachRoute();requestApproachRoute(lastLocation,new GeoPoint(returning.lat,returning.lon));updateGuidance(lastLocation);
+        });
+    }
+    void offerDumpRecovery(){
+        if(isFinishing()||isDestroyed()||guiding||recording)return;
+        DumpCheckpoint cp=DumpCheckpoint.load(prefs);if(cp==null)return;File file=new File(store.routesDir(),cp.file);
+        if(!cp.matches(file)){confirmSheet("Point de vidage conservé","La tournée a changé ou a été supprimée. Restaure sa version depuis l’historique, ou abandonne ce point pour démarrer une autre tournée.","Conserver","Abandonner le point",RED,()->DumpCheckpoint.clear(prefs));return;}
+        RouteTools.Sheet sheet=routeTools.new Sheet("Reprendre après le vidage");sheet.info(store.displayName(file)+" · "+formatDistance(cp.progress)+" déjà parcourus. Le point et le sens de collecte ont été conservés.");
+        sheet.action("Reprendre cette session",()->{sheet.dialog.dismiss();startGuidance(store.parse(file),cp.reverse,cp);});
+        sheet.action("Abandonner le point de reprise",()->confirmSheet("Abandonner ce point ?","Le tracé enregistré restera intact, mais la progression sauvegardée pour le vidage sera supprimée.","Conserver","Abandonner",RED,()->{DumpCheckpoint.clear(prefs);sheet.dialog.dismiss();}));
+    }
 
     private View timeline(String badge,String title,String sub,int color){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);r.setPadding(0,dp(7),0,dp(7));TextView b=circle(badge,color);r.addView(b,new LinearLayout.LayoutParams(dp(34),dp(34)));LinearLayout t=new LinearLayout(this);t.setOrientation(LinearLayout.VERTICAL);t.addView(text(title,13,Typeface.BOLD,Color.WHITE));t.addView(text(sub,11,Typeface.NORMAL,MUTED));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.leftMargin=dp(10);r.addView(t,lp);r.setBackground(rippleLike());return r;}
 
@@ -609,7 +655,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
 
     private LinearLayout sheetPanel(String title,String subtitle){LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(18),dp(8),dp(18),dp(18));panel.setBackground(glass(Color.argb(248,20,22,29),30));TextView handle=text("—",28,Typeface.BOLD,Color.argb(90,255,255,255));handle.setGravity(Gravity.CENTER);panel.addView(handle,new LinearLayout.LayoutParams(-1,dp(26)));panel.addView(text(title,22,Typeface.BOLD,Color.WHITE));if(subtitle!=null&&!subtitle.isEmpty()){TextView sub=text(subtitle,11,Typeface.NORMAL,MUTED);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.topMargin=dp(4);sp.bottomMargin=dp(14);panel.addView(sub,sp);}return panel;}
     private TextView sheetAction(String label,int color){TextView v=pill(label,color,13);v.setGravity(Gravity.CENTER_VERTICAL);v.setPadding(dp(16),0,dp(16),0);return v;}
-    private void presentBottomSheet(Dialog d,FrameLayout shell,LinearLayout panel){shell.addView(panel,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));d.setContentView(shell);setBackdropBlur(true);d.setOnDismissListener(x->setBackdropBlur(false));d.show();android.view.Window w=d.getWindow();if(w!=null){w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setGravity(Gravity.BOTTOM);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=w.getAttributes();a.dimAmount=.48f;w.setAttributes(a);}panel.setAlpha(0);panel.setTranslationY(dp(34));panel.setScaleX(.985f);panel.setScaleY(.985f);panel.animate().alpha(1).translationY(0).scaleX(1).scaleY(1).setDuration(300).setInterpolator(new DecelerateInterpolator()).start();}
+    private void presentBottomSheet(Dialog d,FrameLayout shell,LinearLayout panel){BoundedScrollView scroll=new BoundedScrollView(this);scroll.setMaximumHeight((int)(getResources().getDisplayMetrics().heightPixels*.86));scroll.addView(panel);shell.addView(scroll,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));d.setContentView(shell);setBackdropBlur(true);d.setOnDismissListener(x->setBackdropBlur(false));d.show();android.view.Window w=d.getWindow();if(w!=null){w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setGravity(Gravity.BOTTOM);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=w.getAttributes();a.dimAmount=.48f;w.setAttributes(a);}panel.setAlpha(0);panel.setTranslationY(dp(34));panel.setScaleX(.985f);panel.setScaleY(.985f);panel.animate().alpha(1).translationY(0).scaleX(1).scaleY(1).setDuration(300).setInterpolator(new DecelerateInterpolator()).start();}
     private void showToursActionSheet(){Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(14),0,dp(14),dp(14));LinearLayout panel=sheetPanel("Tournées","Créer, importer ou exporter une tournée");TextView fresh=sheetAction("＋  Nouvelle tournée",accent());fresh.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(this::openNewRecording,130);});panel.addView(fresh,bottom(8));TextView imp=sheetAction("⇩  Importer une tournée GPX",Color.argb(62,255,255,255));imp.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(this::importGpx,130);});panel.addView(imp,bottom(8));TextView exp=sheetAction("⇧  Exporter une tournée",Color.argb(62,255,255,255));exp.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(this::showExportRoutePicker,130);});panel.addView(exp,bottom(8));TextView cancel=sheetAction("Fermer",Color.argb(30,255,255,255));cancel.setOnClickListener(v->d.dismiss());panel.addView(cancel);presentBottomSheet(d,shell,panel);}
     private void showExportRoutePicker(){List<RouteStore.Summary> routes=store.summaries();if(routes.isEmpty()){toast("Aucune tournée à exporter");return;}Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(14),0,dp(14),dp(14));LinearLayout panel=sheetPanel("Exporter une tournée","Choisis le plan GPX à partager ou enregistrer ailleurs");ScrollView sc=new ScrollView(this);LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);for(RouteStore.Summary r:routes){TextView a=sheetAction("↗  "+store.displayName(r.file),Color.argb(52,255,255,255));a.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(()->share(r.file),130);});list.addView(a,bottom(7));}sc.addView(list);panel.addView(sc,new LinearLayout.LayoutParams(-1,Math.min(dp(360),dp(64)*routes.size())));presentBottomSheet(d,shell,panel);}
     private void showPlanLegend(){removePlanLegend();LinearLayout legend=new LinearLayout(this);legend.setOrientation(LinearLayout.VERTICAL);legend.setPadding(dp(13),dp(10),dp(13),dp(10));legend.setBackground(glass(Color.argb(225,18,20,26),20));legend.addView(text("LÉGENDE DU PLAN",9,Typeface.BOLD,accent()));legend.addView(text("D  Départ   •   A  Arrivée",11,Typeface.BOLD,Color.WHITE),top(4));legend.addView(text("MA  Marche arrière   •   2C  Deux côtés",11,Typeface.BOLD,Color.WHITE),top(3));planLegend=legend;FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.START);lp.setMargins(dp(14),safeTop()+dp(8),0,0);root.addView(planLegend,lp);fade(planLegend);}
@@ -681,9 +727,9 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private String avgSpeed(RouteStore.Summary s){if(s.durationMs<=0)return"—";return String.format(Locale.FRANCE,"%.1f km/h",(s.distanceM/1000d)/(s.durationMs/3600000d));}
     private String bytes(long b){return b<1024*1024?(b/1024)+" Ko":b<1024L*1024*1024?String.format(Locale.FRANCE,"%.0f Mo",b/1048576d):String.format(Locale.FRANCE,"%.1f Go",b/1073741824d);}
 
-    @Override protected void onResume(){super.onResume();map.onResume();checkPendingMapInstall();if(hasLocation())enableLocation();}
-    @Override protected void onPause(){if(recording)saveDraft(true);map.onPause();super.onPause();}
-    @Override protected void onDestroy(){timer.removeCallbacks(tick);stopPreviewPlayback();try{lm.removeUpdates(this);}catch(SecurityException ignored){}if(me!=null)me.disableMyLocation();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();map.onResume();if(routeTools!=null)routeTools.resume();checkPendingMapInstall();if(hasLocation())enableLocation();}
+    @Override protected void onPause(){if(recording)saveDraft(true);if(routeTools!=null)routeTools.pause();map.onPause();super.onPause();}
+    @Override protected void onDestroy(){timer.removeCallbacks(tick);if(routeTools!=null)routeTools.destroy();stopPreviewPlayback();try{lm.removeUpdates(this);}catch(SecurityException ignored){}if(me!=null)me.disableMyLocation();super.onDestroy();}
     @Override public void onBackPressed(){if(guiding){confirmStopGuidance();return;}if(focusMode){exitFocusMode();return;}if(planSheet!=null){closePlan();return;}if(page!=null){showMap();return;}if(recording){new AlertDialog.Builder(this).setTitle("Tournée en cours").setMessage("L’enregistrement continue. Tu peux revenir à la carte ou terminer la tournée.").setNegativeButton("Rester",null).setPositiveButton("Terminer",(d,w)->finishRecording()).show();return;}super.onBackPressed();}
 
     private interface TextConsumer{void accept(String s);}

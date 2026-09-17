@@ -54,15 +54,15 @@ final class GuidanceEngine {
     float totalDistanceM(){return cumulative.length==0?0:cumulative[cumulative.length-1];}
     int currentIndex(){return segmentAt(progress);}
     void reset(){progress=0;lastFix=null;lastTime=0;}
+    float progressM(){return progress;}
+    void restoreProgress(float meters){if(Float.isFinite(meters)){progress=Math.max(0,Math.min(totalDistanceM(),meters));lastFix=null;lastTime=0;}}
     void jumpPoints(int delta){if(!points.isEmpty())progress=cumulative[Math.max(0,Math.min(points.size()-1,currentIndex()+delta))];}
     /** Explicit user-requested resumption; never silently skip a loop during normal tracking. */
     boolean reposition(double lat,double lon){
-        if(!isUsable()||!Double.isFinite(lat)||!Double.isFinite(lon))return false;
-        // Only the untravelled suffix is eligible: the first visit to a repeated
-        // coordinate must never resurrect an already completed part of the tour.
-        Match m=match(lat,lon,progress,totalDistanceM(),0,false);
+        if(!isUsable())return false;
+        Match m=match(lat,lon,0,totalDistanceM(),0,false);
         if(m.distance>45)return false;
-        progress=Math.max(progress,m.along);lastFix=new Point(lat,lon);lastTime=0;return true;
+        progress=m.along;lastFix=new Point(lat,lon);lastTime=0;return true;
     }
     State update(double lat,double lon){return update(lat,lon,System.currentTimeMillis(),5);}
     State update(double lat,double lon,long time,float accuracy){

@@ -57,6 +57,19 @@ final class PrintablePlan {
         },"Routix-paper-plan").start();
     }
     private PaperRoute.Point project(double lat,double lon){return new PaperRoute.Point((lon-lon0)*lonScale,(lat-lat0)*111320);}
+    static List<PaperRoute.Step> streetSteps(Activity activity,RouteStore.Summary route)throws Exception{
+        if(route.points.size()<2)throw new IOException("Trace insuffisante");
+        PrintablePlan plan=new PrintablePlan(activity,route,"");
+        plan.lat0=route.points.get(0).lat;plan.lon0=route.points.get(0).lon;plan.lonScale=111320*Math.cos(Math.toRadians(plan.lat0));
+        double south=90,north=-90,west=180,east=-180;
+        for(RouteStore.Point p:route.points){
+            if(!Double.isFinite(p.lat)||!Double.isFinite(p.lon)||Math.abs(p.lat)>85||Math.abs(p.lon)>180)throw new IOException("Coordonnées invalides");
+            plan.trace.add(plan.project(p.lat,p.lon));south=Math.min(south,p.lat);north=Math.max(north,p.lat);west=Math.min(west,p.lon);east=Math.max(east,p.lon);
+        }
+        if(plan.trace.size()>100000||(north-south)*111320*(east-west)*plan.lonScale>100000000||north-south>.3||east-west>.5)throw new IOException("Zone trop vaste pour rechercher les rues (100 km² maximum)");
+        String bbox=String.format(Locale.US,"%.6f,%.6f,%.6f,%.6f",south-.002,west-.003,north+.002,east+.003);
+        return PaperRoute.steps(plan.trace,plan.readRoads(bbox));
+    }
     private void generate() throws Exception {
         lat0=route.points.get(0).lat;lon0=route.points.get(0).lon;lonScale=111320*Math.cos(Math.toRadians(lat0));
         double south=90,north=-90,west=180,east=-180;
