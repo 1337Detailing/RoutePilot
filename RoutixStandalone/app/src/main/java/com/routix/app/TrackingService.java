@@ -32,8 +32,8 @@ public final class TrackingService extends Service implements LocationListener {
         speech=new TextToSpeech(this,status->{speechReady=status==TextToSpeech.SUCCESS;if(speechReady)speech.setLanguage(Locale.FRANCE);});
         io.execute(()->{try{
             List<RouteStore.Point> p=new ArrayList<>();List<RouteStore.Event> e=new ArrayList<>();journal.read(p,e);
-            boolean rec=Boolean.parseBoolean(journal.state("recording","false")),pause=Boolean.parseBoolean(journal.state("paused","false"));long start=Long.parseLong(journal.state("started","0"));
-            String file=journal.state("guidance","");float progress=Float.parseFloat(journal.state("progress","0"));
+            boolean rec=Boolean.parseBoolean(journal.readState("recording","false")),pause=Boolean.parseBoolean(journal.readState("paused","false"));long start=Long.parseLong(journal.readState("started","0"));
+            String file=journal.readState("guidance","");float progress=Float.parseFloat(journal.readState("progress","0"));
             RouteStore.Summary recovered=file.isEmpty()?null:store.parse(new File(store.routesDir(),new File(file).getName()));
             main.post(()->{if(closed)return;points.addAll(p);events.addAll(e);recording=rec;paused=pause;started=start;for(int i=1;i<points.size();i++)distance+=RouteNormalizer.distanceM(points.get(i-1),points.get(i));if(recovered!=null&&recovered.points.size()>1)installGuidance(recovered,progress);ready=true;if(visible&&(recording||guidance!=null))activate();publish();if(visible||foreground)subscribe();});
         }catch(Exception ex){DiagnosticLog.error("session recovery",ex);main.post(()->{ready=true;publish();});}});

@@ -15,7 +15,7 @@ final class SessionJournal extends SQLiteOpenHelper {
     }
     @Override public void onUpgrade(SQLiteDatabase db,int old,int next){}
     synchronized void state(String key,String value){ContentValues v=new ContentValues();v.put("key",key);v.put("value",value);getWritableDatabase().insertWithOnConflict("state",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
-    synchronized String state(String key,String fallback){try(Cursor c=getReadableDatabase().query("state",new String[]{"value"},"key=?",new String[]{key},null,null,null)){return c.moveToFirst()?c.getString(0):fallback;}}
+    synchronized String readState(String key,String fallback){try(Cursor c=getReadableDatabase().query("state",new String[]{"value"},"key=?",new String[]{key},null,null,null)){return c.moveToFirst()?c.getString(0):fallback;}}
     synchronized void point(RouteStore.Point p){ContentValues v=fix(p.lat,p.lon,p.time,p.accuracy);getWritableDatabase().insertOrThrow("fixes",null,v);}
     synchronized void event(RouteStore.Event e){ContentValues v=fix(e.lat,e.lon,e.time,e.accuracy);v.put("type",e.type);v.put("label",e.label);getWritableDatabase().insertOrThrow("events",null,v);}
     private ContentValues fix(double lat,double lon,long time,float accuracy){ContentValues v=new ContentValues();v.put("lat",lat);v.put("lon",lon);v.put("time",time);v.put("accuracy",accuracy);return v;}

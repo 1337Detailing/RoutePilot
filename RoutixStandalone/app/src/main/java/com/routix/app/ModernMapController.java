@@ -14,6 +14,7 @@ import org.maplibre.android.maps.*;
 import org.maplibre.android.style.sources.GeoJsonSource;
 import org.maplibre.android.style.layers.*;
 import org.maplibre.geojson.*;
+import org.maplibre.geojson.Point;
 import java.util.*;
 import static org.maplibre.android.style.layers.PropertyFactory.*;
 
