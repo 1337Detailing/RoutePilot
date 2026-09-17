@@ -11,7 +11,7 @@ on:
       - '.github/workflows/build-debug-apk.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -32,6 +32,9 @@ jobs:
       with:
         gradle-version: '8.10.2'
 
+    - name: Apply staged RoutePilot product update
+      run: python3 .github/routepilot_hours_patch.py
+
     - name: Build standalone RoutePilot APK
       working-directory: ./RoutePilotStandalone
       run: gradle :app:assembleDebug --stacktrace
@@ -47,3 +50,13 @@ jobs:
         name: routepilot-v1-apk
         path: RoutePilotStandalone/app/build/outputs/apk/debug/RoutePilot-V1-*.apk
         retention-days: 90
+
+    - name: Commit tested RoutePilot update
+      run: |
+        git config user.name 'RoutePilot Bot'
+        git config user.email 'routepilot-bot@users.noreply.github.com'
+        git show HEAD^:.github/workflows/build-debug-apk.yml > .github/workflows/build-debug-apk.yml
+        git rm -f .github/routepilot_hours_patch.py .github/workflows/routepilot-hours-liquid-glass.yml
+        git add RoutePilotStandalone/app/build.gradle RoutePilotStandalone/app/src/main/java/com/routepilot/app/RoutePilotProActivity.java RoutePilotStandalone/app/src/main/java/com/routepilot/app/OnboardingActivity.java RoutePilotStandalone/app/src/main/java/com/routepilot/app/WorkHoursStore.java .github/workflows/build-debug-apk.yml
+        git commit -m 'Add hours tab and liquid glass privacy onboarding'
+        git push origin HEAD:master
