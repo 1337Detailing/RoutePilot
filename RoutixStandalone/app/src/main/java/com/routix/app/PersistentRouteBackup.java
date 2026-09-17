@@ -75,6 +75,17 @@ final class PersistentRouteBackup {
         return null;
     }
 
+    void delete(String name) {
+        if (Build.VERSION.SDK_INT < 29 || name == null || !name.toLowerCase(Locale.ROOT).endsWith(".gpx")) return;
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Uri target = find(cr, MediaStore.Downloads.EXTERNAL_CONTENT_URI, name);
+            if (target != null) cr.delete(target, null, null);
+        } catch (Exception e) {
+            DiagnosticLog.error("persistent backup delete", e);
+        }
+    }
+
     void restoreInto(File destination) {
         if (Build.VERSION.SDK_INT < 29 || destination == null) return;
         if (!destination.exists()) destination.mkdirs();
