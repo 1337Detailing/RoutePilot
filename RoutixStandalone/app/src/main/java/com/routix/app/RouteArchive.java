@@ -23,8 +23,9 @@ final class RouteArchive {
         String gpx=new String(Files.readAllBytes(source.toPath()),StandardCharsets.UTF_8);
         List<Version> versions=versions(route);
         if(!versions.isEmpty()){JSONObject previous=read(versions.get(0).file);if(gpx.equals(previous.optString("gpx"))&&name.equals(previous.optString("name")))return;}
-        JSONObject data=new JSONObject().put("gpx",gpx).put("name",name).put("reason",reason).put("time",System.currentTimeMillis());
-        atomic(new File(dir,System.currentTimeMillis()+"-"+UUID.randomUUID()+".json"),data.toString().getBytes(StandardCharsets.UTF_8));
+        long time=Math.max(System.currentTimeMillis(),versions.isEmpty()?0:versions.get(0).time+1);
+        JSONObject data=new JSONObject().put("gpx",gpx).put("name",name).put("reason",reason).put("time",time);
+        atomic(new File(dir,time+"-"+UUID.randomUUID()+".json"),data.toString().getBytes(StandardCharsets.UTF_8));
     }
     List<Version> versions(File route)throws Exception{
         List<Version> out=new ArrayList<>();File[] files=new File(root,route.getName()).listFiles((d,n)->n.endsWith(".json"));

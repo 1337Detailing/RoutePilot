@@ -59,10 +59,11 @@ final class GuidanceEngine {
     void jumpPoints(int delta){if(!points.isEmpty())progress=cumulative[Math.max(0,Math.min(points.size()-1,currentIndex()+delta))];}
     /** Explicit user-requested resumption; never silently skip a loop during normal tracking. */
     boolean reposition(double lat,double lon){
-        if(!isUsable())return false;
-        Match m=match(lat,lon,0,totalDistanceM(),0,false);
+        if(!isUsable()||!Double.isFinite(lat)||!Double.isFinite(lon))return false;
+        // Only the untravelled suffix is eligible: completed passes remain completed.
+        Match m=match(lat,lon,progress,totalDistanceM(),0,false);
         if(m.distance>45)return false;
-        progress=m.along;lastFix=new Point(lat,lon);lastTime=0;return true;
+        progress=Math.max(progress,m.along);lastFix=new Point(lat,lon);lastTime=0;return true;
     }
     State update(double lat,double lon){return update(lat,lon,System.currentTimeMillis(),5);}
     State update(double lat,double lon,long time,float accuracy){
