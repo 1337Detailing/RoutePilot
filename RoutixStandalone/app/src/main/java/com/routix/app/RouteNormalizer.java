@@ -72,17 +72,10 @@ final class RouteNormalizer {
     }
 
     private static void simplify(List<RouteStore.Point> p,int first,int last,boolean[] keep){
-        if(last<=first+1)return;
-        double best=-1; int index=-1;
-        for(int i=first+1;i<last;i++){
-            if(keep[i]) continue;
-            double d=segmentDistanceM(p.get(i),p.get(first),p.get(last));
-            if(d>best){best=d;index=i;}
-        }
-        if(index>=0 && best>SIMPLIFY_TOLERANCE_M){
-            keep[index]=true;
-            simplify(p,first,index,keep);
-            simplify(p,index,last,keep);
+        java.util.ArrayDeque<int[]> pending=new java.util.ArrayDeque<>();pending.push(new int[]{first,last});
+        while(!pending.isEmpty()){int[] span=pending.pop();int lo=span[0],hi=span[1];if(hi<=lo+1)continue;
+            double best=-1;int index=-1;for(int i=lo+1;i<hi;i++){if(keep[i])continue;double d=segmentDistanceM(p.get(i),p.get(lo),p.get(hi));if(d>best){best=d;index=i;}}
+            if(index>=0&&best>SIMPLIFY_TOLERANCE_M){keep[index]=true;pending.push(new int[]{lo,index});pending.push(new int[]{index,hi});}
         }
     }
 

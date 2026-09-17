@@ -90,7 +90,7 @@ final class PersistentRouteBackup {
             if (c == null) return;
             while (c.moveToNext()) {
                 String name = c.getString(1);
-                if (name == null || !name.toLowerCase(Locale.ROOT).endsWith(".gpx")) continue;
+                if (name == null || !name.toLowerCase(Locale.ROOT).endsWith(".gpx") || context.getSharedPreferences("routix",0).getBoolean("deleted_route_"+name,false)) continue;
                 File target = new File(destination, safeName(name));
                 if (target.exists() && target.length() > 128) continue;
                 Uri uri = Uri.withAppendedPath(collection, Long.toString(c.getLong(0)));

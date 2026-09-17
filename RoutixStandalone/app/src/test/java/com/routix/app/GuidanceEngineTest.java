@@ -79,4 +79,13 @@ public class GuidanceEngineTest {
         assertFalse(e.reposition(Double.NaN,here.lon));
         assertEquals(800,fix(e,800,0,3000).remainingM,3);
     }
+    @Test public void thirtyMinuteReplayAndProcessRecoveryKeepSameProgress(){
+        GuidanceEngine continuous=engine(p(0,0),p(6000,0)),restored=engine(p(0,0),p(6000,0));
+        for(int second=0;second<=1800;second++){
+            GuidanceEngine.State expected=fix(continuous,second*3,0,(second+1)*1000L);
+            if(second==1200){restored=engine(p(0,0),p(6000,0));restored.restoreProgress(expected.alongRouteM);}
+            GuidanceEngine.State actual=fix(restored,second*3,0,(second+1)*1000L);
+            assertTrue(Float.isFinite(actual.remainingM));assertEquals(expected.remainingM,actual.remainingM,.1);
+        }
+    }
 }

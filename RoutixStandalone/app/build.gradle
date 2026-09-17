@@ -12,7 +12,7 @@ android {
         targetSdk 35
         def runNumber = System.getenv('GITHUB_RUN_NUMBER')
         versionCode runNumber ? 200000 + runNumber.toInteger() : 200027
-        versionName runNumber ? "2.0.${runNumber}" : '2.0.0'
+        versionName runNumber ? "2.1.${runNumber}" : '2.1.0'
     }
 
     testOptions { unitTests.includeAndroidResources = true }

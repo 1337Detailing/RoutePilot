@@ -2,4 +2,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="routes" path="routes/" />
     <cache-path name="paper_plans" path="paper-plans/" />
+    <cache-path name="diagnostics" path="reports/" />
 </paths>

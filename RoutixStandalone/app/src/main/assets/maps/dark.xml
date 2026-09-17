@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rendertheme xmlns="http://mapsforge.org/renderTheme" version="1" map-background="#181825">
+ <rule e="way" k="landuse|natural|leisure" v="forest|wood|grass|park|meadow"><area fill="#243c35" /></rule>
+ <rule e="way" k="natural" v="water"><area fill="#213b58" /></rule>
+ <rule e="way" k="waterway" v="*"><line stroke="#213b58" stroke-width="2" /></rule>
+ <rule e="way" k="building" v="*" zoom-min="14"><area fill="#313244" /></rule>
+ <rule e="way" k="highway" v="*"><line stroke="#242435" stroke-width="5" /><line stroke="#55556c" stroke-width="3.5" /><rule e="way" k="name" v="*" zoom-min="14"><pathText k="name" font-size="12" fill="#e5def6" stroke="#181825" stroke-width="2" /></rule></rule>
+ <rule e="node" k="place" v="city|town|village"><caption k="name" font-size="15" fill="#e5def6" stroke="#181825" stroke-width="2" /></rule>
+</rendertheme>
