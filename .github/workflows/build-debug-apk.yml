@@ -7,6 +7,7 @@ on:
       - master
     paths:
       - '.github/workflows/build-debug-apk.yml'
+      - '.github/routix_rebrand.py'
 
 permissions:
   contents: write
