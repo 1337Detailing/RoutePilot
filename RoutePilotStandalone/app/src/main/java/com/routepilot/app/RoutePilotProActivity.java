@@ -2,6 +2,8 @@ package com.routepilot.app;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.app.Dialog;
+import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -9,13 +11,17 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,9 +29,11 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -41,6 +49,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import org.osmdroid.config.Configuration;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.mapsforge.map.rendertheme.InternalRenderTheme;
 import org.osmdroid.mapsforge.MapsForgeTileProvider;
 import org.osmdroid.mapsforge.MapsForgeTileSource;
@@ -54,7 +64,11 @@ import org.osmdroid.views.overlay.Polyline;
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider;
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -78,7 +92,7 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
     private MapView map;
     private MyLocationNewOverlay me;
     private LocationManager lm;
-    private Polyline liveTrack,previewTrack;
+    private Polyline liveTrack,previewTrack,approachTrack;
     private Location lastLocation;
 
     private View topBar,recordSheet,dock,page,planSheet,focusRestore,guidanceHud;
@@ -86,9 +100,10 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
     private TextView gpsChip,mapChip,timeText,distanceText,eventsText,pointsText,recordBtn,reverseBtn,sidesBtn,pauseBtn,undoBtn,collapseBtn;
     private TextView navMap,navHistory,navSettings;
 
-    private boolean recording,paused,collapsed,focusMode,guiding;
+    private boolean recording,paused,collapsed,focusMode,guiding,guidanceCameraFollow=true,approachingStart;
     private long startedAt,pauseStarted,pausedTotal,lastDraftWrite;
-    private double liveDistance;
+    private double liveDistance,approachDistanceM;
+    private String approachInstruction="Calcul de l’itinéraire vers le départ…";
     private File lastRoute;
 
     private GuidanceEngine guidance;
@@ -125,7 +140,7 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
     }
 
     private void buildMap(){
-        map=new MapView(this);map.setTileSource(TileSourceFactory.MAPNIK);map.setUseDataConnection(true);map.setMultiTouchControls(true);map.setTilesScaledToDpi(true);map.setMinZoomLevel(3.0);map.setMaxZoomLevel(20.0);map.getController().setZoom(18.2);map.setHorizontalMapRepetitionEnabled(false);map.setVerticalMapRepetitionEnabled(false);root.addView(map,new FrameLayout.LayoutParams(-1,-1));
+        map=new MapView(this);map.setTileSource(TileSourceFactory.MAPNIK);map.setUseDataConnection(true);map.setMultiTouchControls(true);map.setTilesScaledToDpi(true);map.setMinZoomLevel(3.0);map.setMaxZoomLevel(20.0);map.getController().setZoom(18.2);map.setHorizontalMapRepetitionEnabled(false);map.setVerticalMapRepetitionEnabled(false);map.setOnTouchListener((v,e)->{if(guiding&&e.getActionMasked()==MotionEvent.ACTION_DOWN)guidanceCameraFollow=false;return false;});root.addView(map,new FrameLayout.LayoutParams(-1,-1));
         me=new MyLocationNewOverlay(new GpsMyLocationProvider(this),map);me.setDrawAccuracyEnabled(true);map.getOverlays().add(me);
         liveTrack=new Polyline();liveTrack.getOutlinePaint().setStrokeWidth(dp(7));liveTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);liveTrack.getOutlinePaint().setColor(traceColor());map.getOverlays().add(liveTrack);
         restoreOfflineMap();
@@ -200,49 +215,58 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);LinearLayout title=new LinearLayout(this);title.setOrientation(LinearLayout.VERTICAL);title.addView(text(store.displayName(s.file),18,Typeface.BOLD,Color.WHITE));title.addView(text(formatDuration(s.durationMs)+"  •  "+formatDistance(s.distanceM)+"  •  "+s.events.size()+" repères",11,Typeface.NORMAL,MUTED));head.addView(title,new LinearLayout.LayoutParams(0,-2,1));TextView focus=circle("▣",GLASS2);focus.setOnClickListener(v->enterFocusMode());LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(dp(40),dp(40));fl.rightMargin=dp(6);head.addView(focus,fl);TextView close=circle("×",GLASS2);close.setOnClickListener(v->closePlan());head.addView(close,new LinearLayout.LayoutParams(dp(40),dp(40)));sh.addView(head);
         LinearLayout quick=new LinearLayout(this);quick.setPadding(0,dp(10),0,dp(5));quick.addView(summaryStat("DÉPART",timeOf(s.firstTime)),new LinearLayout.LayoutParams(0,-2,1));quick.addView(summaryStat("ARRIVÉE",timeOf(s.lastTime)),new LinearLayout.LayoutParams(0,-2,1));quick.addView(summaryStat("MOYENNE",avgSpeed(s)),new LinearLayout.LayoutParams(0,-2,1));sh.addView(quick);
         ScrollView scroll=new ScrollView(this);LinearLayout timeline=new LinearLayout(this);timeline.setOrientation(LinearLayout.VERTICAL);View start=timeline("D","Départ","Début de tournée",GREEN);start.setOnClickListener(v->centerPoint(s.points.get(0),19));timeline.addView(start);for(int i=0;i<s.events.size();i++){RouteStore.Event e=s.events.get(i);String sub=e.time>0&&s.firstTime>0?"+"+formatDuration(e.time-s.firstTime):"Repère "+(i+1);View row=timeline(String.valueOf(i+1),e.label,sub,"REVERSE".equals(e.type)?ORANGE:GREEN);final int index=i;row.setOnClickListener(v->centerEvent(s.events.get(index)));timeline.addView(row);}View end=timeline("A","Arrivée","Fin de tournée",RED);end.setOnClickListener(v->centerPoint(s.points.get(s.points.size()-1),19));timeline.addView(end);scroll.addView(timeline);LinearLayout.LayoutParams scrollLp=new LinearLayout.LayoutParams(-1,0,1);scrollLp.topMargin=dp(5);sh.addView(scroll,scrollLp);
-        LinearLayout actions=new LinearLayout(this);actions.setPadding(0,dp(8),0,0);TextView preview=pill("▷ Aperçu",GLASS2,12);TextView full=pill("Vue complète",GLASS2,12);TextView startGuide=pill("▶ Démarrer",accent(),13);preview.setOnClickListener(v->startPreviewPlayback(s));full.setOnClickListener(v->fitSummary(s));startGuide.setOnClickListener(v->chooseGuidanceDirection(s));actions.addView(preview,weighted(.8f,4));actions.addView(full,weighted(1f,4));actions.addView(startGuide,weighted(1.2f,0));sh.addView(actions);planSheet=sh;root.addView(sh,planLp());fade(sh);
+        LinearLayout actions=new LinearLayout(this);actions.setPadding(0,dp(8),0,0);TextView preview=pill("▶ Aperçu animé",GLASS2,11);TextView full=pill("⛶ Plein plan",GLASS2,11);TextView startGuide=pill("➜ Démarrer",accent(),12);preview.setOnClickListener(v->enterPlanPreview(s));full.setOnClickListener(v->enterPlanOverview(s));startGuide.setOnClickListener(v->chooseGuidanceDirection(s));actions.addView(preview,weighted(.9f,4));actions.addView(full,weighted(.9f,4));actions.addView(startGuide,weighted(1.2f,0));sh.addView(actions);planSheet=sh;root.addView(sh,planLp());fade(sh);
     }
 
     private void drawSummary(RouteStore.Summary s,boolean reverse){
         clearPreview();previewTrack=new Polyline();previewTrack.getOutlinePaint().setColor(traceColor());previewTrack.getOutlinePaint().setStrokeWidth(dp(9));previewTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);List<GeoPoint> pts=new ArrayList<>();if(reverse){for(int i=s.points.size()-1;i>=0;i--)pts.add(new GeoPoint(s.points.get(i).lat,s.points.get(i).lon));}else for(RouteStore.Point p:s.points)pts.add(new GeoPoint(p.lat,p.lon));previewTrack.setPoints(pts);map.getOverlays().add(previewTrack);addMarker(pts.get(0),"D",GREEN,"preview");for(int i=0;i<s.events.size();i++){RouteStore.Event e=s.events.get(i);addMarker(new GeoPoint(e.lat,e.lon),String.valueOf(i+1),"REVERSE".equals(e.type)?ORANGE:GREEN,"preview");}addMarker(pts.get(pts.size()-1),"A",RED,"preview");fitSummary(s);map.invalidate();
     }
 
-    private void fitSummary(RouteStore.Summary s){if(previewTrack!=null)map.zoomToBoundingBox(previewTrack.getBounds(),true,dp(76));}
+    private void fitSummary(RouteStore.Summary s){if(previewTrack!=null)map.post(()->{try{map.zoomToBoundingBox(previewTrack.getBounds(),true,dp(110));map.invalidate();}catch(Exception ignored){}});}
     private void centerPoint(RouteStore.Point p,double zoom){map.getController().animateTo(new GeoPoint(p.lat,p.lon));map.getController().setZoom(zoom);}
     private void centerEvent(RouteStore.Event e){map.getController().animateTo(new GeoPoint(e.lat,e.lon));map.getController().setZoom(19.2);}
+    private void enterPlanOverview(RouteStore.Summary s){stopPreviewPlayback();enterFocusMode();map.postDelayed(()->fitSummary(s),130);}
+    private void enterPlanPreview(RouteStore.Summary s){enterFocusMode();startPreviewPlayback(s);}
 
     private void startPreviewPlayback(RouteStore.Summary s){
-        stopPreviewPlayback();previewSummary=s;previewIndex=0;toast("Aperçu automatique");int step=Math.max(1,s.points.size()/90);previewRunnable=new Runnable(){@Override public void run(){if(previewSummary==null||previewIndex>=previewSummary.points.size()){stopPreviewPlayback();return;}RouteStore.Point p=previewSummary.points.get(previewIndex);map.getController().animateTo(new GeoPoint(p.lat,p.lon));map.getController().setZoom(18.2);previewIndex+=step;previewTimer.postDelayed(this,220);}};previewTimer.post(previewRunnable);
+        stopPreviewPlayback();previewSummary=s;previewIndex=0;toast("Aperçu animé • touche Retour pour quitter");int step=Math.max(1,s.points.size()/120);previewRunnable=new Runnable(){@Override public void run(){if(previewSummary==null||previewIndex>=previewSummary.points.size()){stopPreviewPlayback();return;}RouteStore.Point p=previewSummary.points.get(previewIndex);map.getController().animateTo(new GeoPoint(p.lat,p.lon));if(previewIndex==0)map.getController().setZoom(17.8);previewIndex+=step;previewTimer.postDelayed(this,180);}};previewTimer.post(previewRunnable);
     }
     private void stopPreviewPlayback(){if(previewRunnable!=null)previewTimer.removeCallbacks(previewRunnable);previewRunnable=null;previewSummary=null;}
 
     private void closePlan(){stopPreviewPlayback();if(planSheet!=null){root.removeView(planSheet);planSheet=null;}clearPreview();map.setVisibility(View.GONE);if(page!=null)page.setVisibility(View.VISIBLE);}
 
     private void chooseGuidanceDirection(RouteStore.Summary s){
-        if(s.points.size()<2){toast("Trace insuffisante");return;}new AlertDialog.Builder(this).setTitle("Démarrer la tournée").setMessage("RoutePilot suivra la trace GPS originale sans recalculer un autre itinéraire.").setNegativeButton("Annuler",null).setNeutralButton("Sens inverse",(d,w)->startGuidance(s,true)).setPositiveButton("Démarrer",(d,w)->startGuidance(s,false)).show();
+        if(s.points.size()<2){toast("Trace insuffisante");return;}showGuidanceStartSheet(s);
     }
 
     private void startGuidance(RouteStore.Summary s,boolean reverse){
-        stopPreviewPlayback();if(planSheet!=null){root.removeView(planSheet);planSheet=null;}if(page!=null)page.setVisibility(View.GONE);guiding=true;guidingRoute=s;guidingReverse=reverse;drawSummary(s,reverse);map.setVisibility(View.VISIBLE);topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);dock.setVisibility(View.GONE);
-        List<GuidanceEngine.Point> gp=new ArrayList<>();if(reverse){for(int i=s.points.size()-1;i>=0;i--){RouteStore.Point p=s.points.get(i);gp.add(new GuidanceEngine.Point(p.lat,p.lon));}}else for(RouteStore.Point p:s.points)gp.add(new GuidanceEngine.Point(p.lat,p.lon));List<GuidanceEngine.Event> ge=new ArrayList<>();for(RouteStore.Event e:s.events)ge.add(new GuidanceEngine.Event(e.type,e.label,e.lat,e.lon));guidance=new GuidanceEngine(gp,ge);guidanceHud=buildGuidanceHud();root.addView(guidanceHud,new FrameLayout.LayoutParams(-1,-1));fade(guidanceHud);if(lastLocation!=null)updateGuidance(lastLocation);else{guideTitle.setText("Position GPS en attente");guideSubtitle.setText("Le guidage démarrera dès que la position est disponible.");}
+        stopPreviewPlayback();if(planSheet!=null){root.removeView(planSheet);planSheet=null;}if(page!=null)page.setVisibility(View.GONE);guiding=true;guidingRoute=s;guidingReverse=reverse;guidanceCameraFollow=true;drawSummary(s,reverse);map.setVisibility(View.VISIBLE);topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);dock.setVisibility(View.GONE);
+        List<GuidanceEngine.Point> gp=new ArrayList<>();if(reverse){for(int i=s.points.size()-1;i>=0;i--){RouteStore.Point p=s.points.get(i);gp.add(new GuidanceEngine.Point(p.lat,p.lon));}}else for(RouteStore.Point p:s.points)gp.add(new GuidanceEngine.Point(p.lat,p.lon));List<GuidanceEngine.Event> ge=new ArrayList<>();for(RouteStore.Event e:s.events)ge.add(new GuidanceEngine.Event(e.type,e.label,e.lat,e.lon));guidance=new GuidanceEngine(gp,ge);guidanceHud=buildGuidanceHud();root.addView(guidanceHud,new FrameLayout.LayoutParams(-1,-1));fade(guidanceHud);
+        RouteStore.Point start=reverse?s.points.get(s.points.size()-1):s.points.get(0);if(lastLocation!=null){float[] d=new float[1];Location.distanceBetween(lastLocation.getLatitude(),lastLocation.getLongitude(),start.lat,start.lon,d);approachingStart=d[0]>70;approachDistanceM=d[0];if(approachingStart)requestApproachRoute(lastLocation,new GeoPoint(start.lat,start.lon));}
+        if(lastLocation!=null)updateGuidance(lastLocation);else{guideTitle.setText("Position GPS en attente");guideSubtitle.setText("Le guidage démarrera dès que la position est disponible.");}
     }
 
     private View buildGuidanceHud(){
         FrameLayout layer=new FrameLayout(this);layer.setClickable(false);
-        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.VERTICAL);top.setPadding(dp(16),dp(13),dp(16),dp(13));top.setBackground(glass(GLASS3,28));top.setElevation(dp(24));guideTitle=text("Suivre la trace",21,Typeface.BOLD,Color.WHITE);guideSubtitle=text("Recherche du prochain repère…",12,Typeface.NORMAL,MUTED);top.addView(guideTitle);LinearLayout.LayoutParams sub=new LinearLayout.LayoutParams(-1,-2);sub.topMargin=dp(3);top.addView(guideSubtitle,sub);FrameLayout.LayoutParams topP=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);topP.setMargins(dp(12),safeTop(),dp(12),0);layer.addView(top,topP);
-        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(dp(15),dp(13),dp(15),dp(14));bottom.setBackground(glass(GLASS3,28));bottom.setElevation(dp(26));LinearLayout stats=new LinearLayout(this);guideProgress=stat("0 %","PROGRESSION");guideRemaining=stat("—","RESTANT");guideDeviation=stat("—","ÉCART TRACE");stats.addView(statCell(guideProgress),new LinearLayout.LayoutParams(0,-2,1));stats.addView(statCell(guideRemaining),new LinearLayout.LayoutParams(0,-2,1));stats.addView(statCell(guideDeviation),new LinearLayout.LayoutParams(0,-2,1));bottom.addView(stats);guideNext=text("Prochain repère : —",13,Typeface.BOLD,Color.WHITE);LinearLayout.LayoutParams nx=new LinearLayout.LayoutParams(-1,-2);nx.topMargin=dp(10);nx.bottomMargin=dp(10);bottom.addView(guideNext,nx);LinearLayout controls=new LinearLayout(this);TextView back=pill("← Étape",GLASS2,12);TextView next=pill("Étape →",GLASS2,12);TextView quit=pill("Quitter",RED,12);back.setOnClickListener(v->{guidance.jumpPoints(-45);if(lastLocation!=null)updateGuidance(lastLocation);});next.setOnClickListener(v->{guidance.jumpPoints(45);if(lastLocation!=null)updateGuidance(lastLocation);});quit.setOnClickListener(v->confirmStopGuidance());controls.addView(back,weighted(1f,4));controls.addView(next,weighted(1f,4));controls.addView(quit,weighted(.9f,0));bottom.addView(controls);FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);bp.setMargins(dp(12),0,dp(12),safeBottom()+dp(10));layer.addView(bottom,bp);return layer;
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.VERTICAL);top.setPadding(dp(18),dp(15),dp(18),dp(15));top.setBackground(glass(Color.argb(220,17,19,25),30));top.setElevation(dp(18));guideTitle=text("Suivre la trace",22,Typeface.BOLD,Color.WHITE);guideSubtitle=text("Recherche du prochain repère…",12,Typeface.NORMAL,MUTED);top.addView(guideTitle);LinearLayout.LayoutParams sub=new LinearLayout.LayoutParams(-1,-2);sub.topMargin=dp(4);top.addView(guideSubtitle,sub);FrameLayout.LayoutParams topP=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);topP.setMargins(dp(12),safeTop(),dp(12),0);layer.addView(top,topP);
+
+        LinearLayout camera=new LinearLayout(this);camera.setOrientation(LinearLayout.VERTICAL);camera.setPadding(dp(5),dp(5),dp(5),dp(5));camera.setBackground(glass(Color.argb(210,22,24,31),22));camera.setElevation(dp(16));TextView locate=circle("◎",accent());TextView zoomIn=circle("＋",GLASS2);TextView zoomOut=circle("−",GLASS2);locate.setOnClickListener(v->{guidanceCameraFollow=true;if(lastLocation!=null){map.getController().animateTo(new GeoPoint(lastLocation.getLatitude(),lastLocation.getLongitude()));map.getController().setZoom(17.8);}});zoomIn.setOnClickListener(v->{guidanceCameraFollow=false;map.getController().zoomIn();});zoomOut.setOnClickListener(v->{guidanceCameraFollow=false;map.getController().zoomOut();});camera.addView(locate,new LinearLayout.LayoutParams(dp(44),dp(44)));LinearLayout.LayoutParams zi=new LinearLayout.LayoutParams(dp(44),dp(44));zi.topMargin=dp(5);camera.addView(zoomIn,zi);LinearLayout.LayoutParams zo=new LinearLayout.LayoutParams(dp(44),dp(44));zo.topMargin=dp(5);camera.addView(zoomOut,zo);FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(dp(54),-2,Gravity.END|Gravity.CENTER_VERTICAL);cp.rightMargin=dp(12);layer.addView(camera,cp);
+
+        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(dp(16),dp(14),dp(16),dp(15));bottom.setBackground(glass(Color.argb(225,17,19,25),30));bottom.setElevation(dp(20));LinearLayout stats=new LinearLayout(this);guideProgress=stat("0 %","PROGRESSION");guideRemaining=stat("—","RESTANT");guideDeviation=stat("—","ÉCART TRACE");stats.addView(statCell(guideProgress),new LinearLayout.LayoutParams(0,-2,1));stats.addView(statCell(guideRemaining),new LinearLayout.LayoutParams(0,-2,1));stats.addView(statCell(guideDeviation),new LinearLayout.LayoutParams(0,-2,1));bottom.addView(stats);guideNext=text("Prochain repère : —",13,Typeface.BOLD,Color.WHITE);LinearLayout.LayoutParams nx=new LinearLayout.LayoutParams(-1,-2);nx.topMargin=dp(11);nx.bottomMargin=dp(11);bottom.addView(guideNext,nx);LinearLayout controls=new LinearLayout(this);TextView back=pill("← Étape",GLASS2,12);TextView next=pill("Étape →",GLASS2,12);TextView quit=pill("Quitter",RED,12);back.setOnClickListener(v->{guidance.jumpPoints(-45);if(lastLocation!=null)updateGuidance(lastLocation);});next.setOnClickListener(v->{guidance.jumpPoints(45);if(lastLocation!=null)updateGuidance(lastLocation);});quit.setOnClickListener(v->confirmStopGuidance());controls.addView(back,weighted(1f,4));controls.addView(next,weighted(1f,4));controls.addView(quit,weighted(.9f,0));bottom.addView(controls);FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);bp.setMargins(dp(12),0,dp(12),safeBottom()+dp(10));layer.addView(bottom,bp);return layer;
     }
 
     private void updateGuidance(Location l){
-        if(!guiding||guidance==null||!guidance.isUsable())return;GuidanceEngine.State s=guidance.update(l.getLatitude(),l.getLongitude());guideProgress.setText(s.progressPercent+" %");guideRemaining.setText(formatDistance(s.remainingM));guideDeviation.setText(Math.round(s.distanceToTraceM)+" m");
+        if(!guiding||guidance==null||!guidance.isUsable())return;
+        if(approachingStart&&guidingRoute!=null){RouteStore.Point target=guidingReverse?guidingRoute.points.get(guidingRoute.points.size()-1):guidingRoute.points.get(0);float[] dd=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),target.lat,target.lon,dd);if(dd[0]<=45){approachingStart=false;clearApproachRoute();toast("Départ rejoint • guidage de tournée actif");}else{guideTitle.setText("Rejoins le départ");guideTitle.setTextColor(CYAN);guideSubtitle.setText(formatDistance(approachDistanceM>0?approachDistanceM:dd[0])+" jusqu’au départ");guideProgress.setText("—");guideRemaining.setText(formatDistance(approachDistanceM>0?approachDistanceM:dd[0]));guideDeviation.setText("GPS");guideNext.setText(approachInstruction);if(guidanceCameraFollow)map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));map.invalidate();return;}}
+        GuidanceEngine.State s=guidance.update(l.getLatitude(),l.getLongitude());guideProgress.setText(s.progressPercent+" %");guideRemaining.setText(formatDistance(s.remainingM));guideDeviation.setText(Math.round(s.distanceToTraceM)+" m");
         if(s.finished){guideTitle.setText("Tournée terminée");guideTitle.setTextColor(GREEN);guideSubtitle.setText("Tu as atteint la fin de la trace enregistrée.");guideNext.setText("✓ Fin de la tournée");}
         else if(s.offRoute){guideTitle.setText("Rejoins la tournée");guideTitle.setTextColor(RED);guideSubtitle.setText("Hors trace • "+Math.round(s.distanceToTraceM)+" m");guideNext.setText(s.nextEvent==null?"Retrouve la ligne de tournée":"Ensuite : "+s.nextEvent.label);}
         else{guideTitle.setTextColor(Color.WHITE);if(s.nextEvent!=null&&s.distanceToNextEventM<Float.MAX_VALUE){String icon="REVERSE".equals(s.nextEvent.type)?"↶ ":"⇆ ";guideTitle.setText(icon+s.nextEvent.label);guideSubtitle.setText("dans "+formatDistance(s.distanceToNextEventM));guideNext.setText("Prochain repère • "+s.nextEvent.label);}else{guideTitle.setText("Suivre la trace");guideSubtitle.setText("Reste sur le parcours enregistré");guideNext.setText("Aucun autre repère métier");}}
-        map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));if(map.getZoomLevelDouble()<17.5)map.getController().setZoom(18.4);map.invalidate();
+        if(guidanceCameraFollow)map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));map.invalidate();
     }
 
     private void confirmStopGuidance(){new AlertDialog.Builder(this).setTitle("Quitter le guidage ?").setMessage("La tournée enregistrée ne sera pas modifiée.").setNegativeButton("Continuer",null).setPositiveButton("Quitter",(d,w)->stopGuidance()).show();}
-    private void stopGuidance(){guiding=false;guidance=null;guidingRoute=null;if(guidanceHud!=null){root.removeView(guidanceHud);guidanceHud=null;}clearPreview();showHistory();}
+    private void stopGuidance(){guiding=false;guidanceCameraFollow=true;approachingStart=false;clearApproachRoute();guidance=null;guidingRoute=null;if(guidanceHud!=null){root.removeView(guidanceHud);guidanceHud=null;}clearPreview();showHistory();}
 
     private View timeline(String badge,String title,String sub,int color){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);r.setPadding(0,dp(7),0,dp(7));TextView b=circle(badge,color);r.addView(b,new LinearLayout.LayoutParams(dp(34),dp(34)));LinearLayout t=new LinearLayout(this);t.setOrientation(LinearLayout.VERTICAL);t.addView(text(title,13,Typeface.BOLD,Color.WHITE));t.addView(text(sub,11,Typeface.NORMAL,MUTED));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.leftMargin=dp(10);r.addView(t,lp);r.setBackground(rippleLike());return r;}
 
@@ -307,7 +331,7 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
     private void importGpx(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/gpx+xml","application/xml","text/xml","text/plain"});startActivityForResult(i,IMPORT_GPX);}
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==IMPORT_GPX&&resultCode==RESULT_OK&&data!=null){File f=store.importGpx(data.getData());if(f!=null){toast("Tournée importée");showHistory();}else toast("GPX invalide ou sans trace");}}
 
-    private void enterFocusMode(){if(guiding)return;focusMode=true;topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);dock.setVisibility(View.GONE);if(planSheet!=null)planSheet.setVisibility(View.GONE);if(focusRestore==null){TextView restore=circle("⌃",Color.argb(220,31,32,38));restore.setOnClickListener(v->exitFocusMode());focusRestore=restore;FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.BOTTOM|Gravity.END);p.setMargins(0,0,dp(18),safeBottom()+dp(18));root.addView(restore,p);}fade(focusRestore);}
+    private void enterFocusMode(){if(guiding)return;focusMode=true;topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);dock.setVisibility(View.GONE);if(planSheet!=null)planSheet.setVisibility(View.GONE);if(focusRestore==null){TextView restore=pill("← Retour",Color.argb(225,25,27,34),12);restore.setOnClickListener(v->exitFocusMode());focusRestore=restore;FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(102),dp(48),Gravity.BOTTOM|Gravity.END);p.setMargins(0,0,dp(16),safeBottom()+dp(16));root.addView(restore,p);}fade(focusRestore);}
     private void exitFocusMode(){focusMode=false;if(focusRestore!=null){root.removeView(focusRestore);focusRestore=null;}if(guiding)return;if(planSheet!=null){planSheet.setVisibility(View.VISIBLE);dock.setVisibility(View.VISIBLE);return;}if(page==null){topBar.setVisibility(View.VISIBLE);recordSheet.setVisibility(View.VISIBLE);dock.setVisibility(View.VISIBLE);}}
     private void setCollapsed(boolean value){collapsed=value;if(recordBody==null)return;if(collapsed){recordBody.setVisibility(View.GONE);collapseBtn.setText("⌃");}else{recordBody.setVisibility(View.VISIBLE);recordBody.setAlpha(1);collapseBtn.setText("⌄");}}
 
@@ -320,7 +344,7 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
 
     private View infoCard(String title,String body){LinearLayout r=row();r.setOrientation(LinearLayout.VERTICAL);r.addView(text(title,15,Typeface.BOLD,Color.WHITE));TextView b=text(body,11,Typeface.NORMAL,MUTED);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(4);r.addView(b,lp);return r;}
     private View choice(String title,String value,View.OnClickListener l){LinearLayout r=row();LinearLayout t=new LinearLayout(this);t.setOrientation(LinearLayout.VERTICAL);t.addView(text(title,15,Typeface.BOLD,Color.WHITE));t.addView(text(value,11,Typeface.NORMAL,MUTED));r.addView(t,new LinearLayout.LayoutParams(0,-2,1));r.addView(text("›",25,Typeface.NORMAL,MUTED));r.setOnClickListener(l);return r;}
-    private View toggle(String title,String sub,String key,boolean def){LinearLayout r=row();LinearLayout t=new LinearLayout(this);t.setOrientation(LinearLayout.VERTICAL);t.addView(text(title,15,Typeface.BOLD,Color.WHITE));t.addView(text(sub,11,Typeface.NORMAL,MUTED));r.addView(t,new LinearLayout.LayoutParams(0,-2,1));SwitchCompat sw=new SwitchCompat(this);sw.setChecked(prefs.getBoolean(key,def));sw.setOnCheckedChangeListener((b,c)->{prefs.edit().putBoolean(key,c).apply();if("keep_screen_on".equals(key))applyKeepScreen();});r.addView(sw);return r;}
+    private View toggle(String title,String sub,String key,boolean def){LinearLayout r=row();LinearLayout t=new LinearLayout(this);t.setOrientation(LinearLayout.VERTICAL);t.addView(text(title,15,Typeface.BOLD,Color.WHITE));t.addView(text(sub,11,Typeface.NORMAL,MUTED));r.addView(t,new LinearLayout.LayoutParams(0,-2,1));FrameLayout track=new FrameLayout(this);track.setPadding(dp(3),dp(3),dp(3),dp(3));View thumb=new View(this);thumb.setBackground(glass(Color.WHITE,99));track.addView(thumb,new FrameLayout.LayoutParams(dp(24),dp(24)));boolean[] checked={prefs.getBoolean(key,def)};applyToggle(track,thumb,checked[0],false);track.setOnClickListener(v->{checked[0]=!checked[0];prefs.edit().putBoolean(key,checked[0]).apply();applyToggle(track,thumb,checked[0],true);haptic(track);if("keep_screen_on".equals(key))applyKeepScreen();});r.addView(track,new LinearLayout.LayoutParams(dp(50),dp(30)));return r;}
     private LinearLayout row(){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);r.setPadding(dp(15),dp(13),dp(13),dp(13));r.setBackground(glass(GLASS2,20));return r;}
     private TextView section(String s){TextView v=text(s,10,Typeface.BOLD,accent());v.setPadding(dp(2),0,0,dp(8));return v;}
     private LinearLayout pageBase(){LinearLayout p=new LinearLayout(this);p.setOrientation(LinearLayout.VERTICAL);p.setPadding(dp(18),safeTop()+dp(18),dp(18),safeBottom()+dp(86));p.setBackgroundColor(BG);return p;}
@@ -332,22 +356,33 @@ public class RoutePilotProActivity extends AppCompatActivity implements Location
     private TextView stat(String value,String tag){TextView v=text(value,15,Typeface.BOLD,Color.WHITE);v.setTag(tag);return v;}
     private View statCell(TextView v){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);b.addView(text((String)v.getTag(),9,Typeface.BOLD,Color.argb(135,255,255,255)));b.addView(v);return b;}
     private View summaryStat(String title,String value){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);b.addView(text(title,9,Typeface.BOLD,Color.argb(135,255,255,255)));b.addView(text(value,14,Typeface.BOLD,Color.WHITE));return b;}
-    private GradientDrawable glass(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));g.setStroke(dp(1),Color.argb(38,255,255,255));return g;}
+    private GradientDrawable glass(int color,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{shade(color,18),color,shade(color,-10)});g.setCornerRadius(dp(radius));g.setStroke(dp(1),Color.argb(45,255,255,255));return g;}
+    private int shade(int c,int delta){return Color.argb(Color.alpha(c),Math.max(0,Math.min(255,Color.red(c)+delta)),Math.max(0,Math.min(255,Color.green(c)+delta)),Math.max(0,Math.min(255,Color.blue(c)+delta)));}
     private GradientDrawable rippleLike(){GradientDrawable g=new GradientDrawable();g.setColor(Color.TRANSPARENT);g.setCornerRadius(dp(14));return g;}
-    private void press(View v){v.animate().scaleX(.97f).scaleY(.97f).setDuration(60).withEndAction(()->v.animate().scaleX(1).scaleY(1).setDuration(130).setInterpolator(new DecelerateInterpolator()).start()).start();}
-    private void fade(View v){if(prefs.getBoolean("reduce_motion",false)){v.setAlpha(1);return;}v.setAlpha(0);v.setTranslationY(dp(8));v.animate().alpha(1).translationY(0).setDuration(190).setInterpolator(new DecelerateInterpolator()).start();}
+    private void press(View v){v.animate().scaleX(.955f).scaleY(.955f).alpha(.86f).setDuration(70).withEndAction(()->v.animate().scaleX(1).scaleY(1).alpha(1).setDuration(210).setInterpolator(new OvershootInterpolator(.8f)).start()).start();}
+    private void fade(View v){if(prefs.getBoolean("reduce_motion",false)){v.setAlpha(1);return;}v.setAlpha(0);v.setScaleX(.985f);v.setScaleY(.985f);v.setTranslationY(dp(14));v.animate().alpha(1).scaleX(1).scaleY(1).translationY(0).setDuration(320).setInterpolator(new DecelerateInterpolator()).start();}
     private void haptic(View v){if(prefs.getBoolean("haptic",true))v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private void enableWorkButtons(boolean e){for(TextView v:new TextView[]{reverseBtn,sidesBtn,pauseBtn,undoBtn}){v.setEnabled(e);v.setAlpha(e?1:.34f);}}
     private void selectTab(String s){for(TextView v:new TextView[]{navMap,navHistory,navSettings}){boolean on=(v==navMap&&"map".equals(s))||(v==navHistory&&"history".equals(s))||(v==navSettings&&"settings".equals(s));v.setTextColor(on?Color.WHITE:MUTED);v.setBackground(on?glass(Color.argb(100,Color.red(accent()),Color.green(accent()),Color.blue(accent())),18):null);}}
 
-    private void accentDialog(){String[] n={"Bleu","Violet","Vert","Orange","Cyan","Rose"};new AlertDialog.Builder(this).setTitle("Couleur d’accent").setItems(n,(d,w)->{prefs.edit().putString("accent",n[w]).apply();recreate();}).show();}
-    private void traceColorDialog(){String[] n={"Orange","Bleu","Vert","Violet","Cyan","Rose"};new AlertDialog.Builder(this).setTitle("Couleur de la trace").setItems(n,(d,w)->{prefs.edit().putString("trace_color",n[w]).apply();recreate();}).show();}
+    private void accentDialog(){showColorPicker("Couleur d’accent","accent",new String[]{"Bleu","Violet","Vert","Orange","Cyan","Rose"});}
+    private void traceColorDialog(){showColorPicker("Couleur de la trace","trace_color",new String[]{"Orange","Bleu","Vert","Violet","Cyan","Rose"});}
     private int namedColor(String s){if("Violet".equals(s))return PURPLE;if("Vert".equals(s))return GREEN;if("Orange".equals(s))return ORANGE;if("Cyan".equals(s))return CYAN;if("Rose".equals(s))return PINK;return BLUE;}
     private int accent(){return namedColor(prefs==null?"Bleu":prefs.getString("accent","Bleu"));}
     private int traceColor(){return namedColor(prefs==null?"Orange":prefs.getString("trace_color","Orange"));}
 
-    private void recenter(){if(lastLocation==null){toast("Position GPS en attente");return;}map.getController().animateTo(new GeoPoint(lastLocation.getLatitude(),lastLocation.getLongitude()));map.getController().setZoom(18.6);}
+    private void showColorPicker(String title,String key,String[] names){Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(14),0,dp(14),dp(14));LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(18),dp(10),dp(18),dp(18));panel.setBackground(glass(Color.argb(246,23,25,32),30));TextView handle=text("—",28,Typeface.BOLD,Color.argb(100,255,255,255));handle.setGravity(Gravity.CENTER);panel.addView(handle,new LinearLayout.LayoutParams(-1,dp(24)));panel.addView(text(title,23,Typeface.BOLD,Color.WHITE),bottom(10));String current=prefs.getString(key,names[0]);for(String name:names){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(11),dp(12),dp(11));TextView dot=text("●",24,Typeface.BOLD,namedColor(name));row.addView(dot,new LinearLayout.LayoutParams(dp(38),-2));TextView label=text(name,16,Typeface.BOLD,Color.WHITE);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));TextView check=text(name.equals(current)?"✓":"",18,Typeface.BOLD,accent());row.addView(check);row.setBackground(glass(Color.argb(name.equals(current)?85:36,255,255,255),18));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(52));rp.bottomMargin=dp(7);panel.addView(row,rp);row.setOnClickListener(v->{press(v);prefs.edit().putString(key,name).apply();d.dismiss();root.postDelayed(this::recreate,150);});}shell.addView(panel,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));d.setContentView(shell);setBackdropBlur(true);d.setOnDismissListener(x->setBackdropBlur(false));d.show();android.view.Window w=d.getWindow();if(w!=null){w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setGravity(Gravity.BOTTOM);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=w.getAttributes();a.dimAmount=.42f;w.setAttributes(a);}}
+
+    private void showGuidanceStartSheet(RouteStore.Summary s){Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(14),0,dp(14),dp(14));LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(18),dp(10),dp(18),dp(18));panel.setBackground(glass(Color.argb(246,23,25,32),30));TextView handle=text("—",28,Typeface.BOLD,Color.argb(100,255,255,255));handle.setGravity(Gravity.CENTER);panel.addView(handle,new LinearLayout.LayoutParams(-1,dp(24)));panel.addView(text("Démarrer la tournée",24,Typeface.BOLD,Color.WHITE));RouteStore.Point start=s.points.get(0);float distance=-1;if(lastLocation!=null){float[] dd=new float[1];Location.distanceBetween(lastLocation.getLatitude(),lastLocation.getLongitude(),start.lat,start.lon,dd);distance=dd[0];}String info=distance>70?"RoutePilot te guidera d’abord jusqu’au départ ("+formatDistance(distance)+"), puis suivra exactement la trace enregistrée.":"Le guidage suivra exactement la trace GPS enregistrée, sans la recalculer.";TextView sub=text(info,12,Typeface.NORMAL,MUTED);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.topMargin=dp(7);sp.bottomMargin=dp(16);panel.addView(sub,sp);TextView go=pill("➜ Démarrer",accent(),15);go.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(()->startGuidance(s,false),110);});panel.addView(go,new LinearLayout.LayoutParams(-1,dp(56)));TextView reverse=pill("↶ Sens inverse",GLASS2,13);reverse.setOnClickListener(v->{press(v);d.dismiss();root.postDelayed(()->startGuidance(s,true),110);});LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(48));rp.topMargin=dp(9);panel.addView(reverse,rp);TextView cancel=pill("Annuler",Color.argb(45,255,255,255),12);cancel.setOnClickListener(v->d.dismiss());LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(44));cp.topMargin=dp(8);panel.addView(cancel,cp);shell.addView(panel,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));d.setContentView(shell);setBackdropBlur(true);d.setOnDismissListener(x->setBackdropBlur(false));d.show();android.view.Window w=d.getWindow();if(w!=null){w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setGravity(Gravity.BOTTOM);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=w.getAttributes();a.dimAmount=.42f;w.setAttributes(a);}}
+
+    private void applyToggle(FrameLayout track,View thumb,boolean on,boolean animate){int target=on?accent():Color.argb(120,85,88,98);if(!animate){track.setBackground(glass(target,99));thumb.setTranslationX(on?dp(20):0);return;}int from=on?Color.argb(120,85,88,98):accent();ValueAnimator colors=ValueAnimator.ofArgb(from,target);colors.setDuration(220);colors.addUpdateListener(a->track.setBackground(glass((Integer)a.getAnimatedValue(),99)));colors.start();thumb.animate().translationX(on?dp(20):0).scaleX(.92f).scaleY(.92f).setDuration(110).withEndAction(()->thumb.animate().scaleX(1).scaleY(1).setDuration(180).setInterpolator(new OvershootInterpolator(.8f)).start()).start();}
+    private void setBackdropBlur(boolean on){if(Build.VERSION.SDK_INT>=31&&root!=null)root.setRenderEffect(on?RenderEffect.createBlurEffect(dp(8),dp(8),Shader.TileMode.CLAMP):null);}
+
+    private void requestApproachRoute(Location from,GeoPoint target){approachInstruction="Calcul de l’itinéraire routier…";new Thread(()->{List<GeoPoint> pts=new ArrayList<>();double roadDistance=-1;String instruction="Suis l’itinéraire bleu jusqu’au départ";try{String q=String.format(Locale.US,"https://router.project-osrm.org/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&steps=true",from.getLongitude(),from.getLatitude(),target.getLongitude(),target.getLatitude());HttpURLConnection c=(HttpURLConnection)new URL(q).openConnection();c.setConnectTimeout(7000);c.setReadTimeout(9000);c.setRequestProperty("User-Agent",getPackageName()+" RoutePilot/1.0");BufferedReader br=new BufferedReader(new InputStreamReader(c.getInputStream()));StringBuilder b=new StringBuilder();String line;while((line=br.readLine())!=null)b.append(line);br.close();JSONObject json=new JSONObject(b.toString());JSONArray routes=json.optJSONArray("routes");if(routes!=null&&routes.length()>0){JSONObject route=routes.getJSONObject(0);roadDistance=route.optDouble("distance",-1);JSONArray coords=route.getJSONObject("geometry").getJSONArray("coordinates");for(int i=0;i<coords.length();i++){JSONArray p=coords.getJSONArray(i);pts.add(new GeoPoint(p.getDouble(1),p.getDouble(0)));}JSONArray legs=route.optJSONArray("legs");if(legs!=null&&legs.length()>0){JSONArray steps=legs.getJSONObject(0).optJSONArray("steps");if(steps!=null&&steps.length()>1){JSONObject st=steps.getJSONObject(1);String name=st.optString("name","");instruction=name.isEmpty()?"Continue vers le départ":"Continue sur "+name;}}}}catch(Exception ignored){}double finalDistance=roadDistance;String finalInstruction=instruction;List<GeoPoint> finalPts=pts;runOnUiThread(()->{if(!guiding||!approachingStart)return;clearApproachRoute();if(finalPts.size()<2){finalPts.add(new GeoPoint(from.getLatitude(),from.getLongitude()));finalPts.add(target);approachInstruction="Trajet routier indisponible • cap direct vers le départ";}else approachInstruction=finalInstruction;if(finalDistance>0)approachDistanceM=finalDistance;approachTrack=new Polyline();approachTrack.getOutlinePaint().setColor(BLUE);approachTrack.getOutlinePaint().setStrokeWidth(dp(8));approachTrack.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);approachTrack.setPoints(finalPts);map.getOverlays().add(approachTrack);map.invalidate();if(guidanceCameraFollow)map.postDelayed(()->{try{map.zoomToBoundingBox(approachTrack.getBounds(),true,dp(90));}catch(Exception ignored){}},100);});}).start();}
+    private void clearApproachRoute(){if(approachTrack!=null){map.getOverlays().remove(approachTrack);approachTrack=null;if(map!=null)map.invalidate();}}
+
+    private void recenter(){if(lastLocation==null){toast("Position GPS en attente");return;}if(guiding)guidanceCameraFollow=true;map.getController().animateTo(new GeoPoint(lastLocation.getLatitude(),lastLocation.getLongitude()));map.getController().setZoom(guiding?17.8:18.6);}
     private void ensureLocation(){if(hasLocation())enableLocation();else ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},LOCATION_PERMISSION);}
     private boolean hasLocation(){return ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
     private void enableLocation(){me.enableMyLocation();try{lm.requestLocationUpdates(LocationManager.GPS_PROVIDER,1000,0,this);}catch(SecurityException ignored){}}
