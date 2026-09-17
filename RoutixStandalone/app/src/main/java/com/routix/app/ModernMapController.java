@@ -22,9 +22,9 @@ import static org.maplibre.android.style.layers.PropertyFactory.*;
 final class ModernMapController {
     private static final int MAX_ROUTE_RENDER_POINTS=6000,MAX_ARROW_RENDER_POINTS=1200;
     private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
-    private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList();private Location location;
+    private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList();private Location location;private long routeSignature=Long.MIN_VALUE;
     private boolean follow=true,heading=true,destroyed,visible=true,bearingReady;private double bearing;private String styleUri;
-    private List<RouteStore.Event> events=Collections.emptyList();
+    private List<RouteStore.Event> events=Collections.emptyList();private int eventsSignature=Integer.MIN_VALUE;
     private final Bitmap userIcon;
     ModernMapController(Activity activity,FrameLayout root,Bitmap icon,Bundle state){
         prefs=activity.getSharedPreferences("routix",0);userIcon=icon;MapLibre.getInstance(activity);
@@ -50,12 +50,15 @@ final class ModernMapController {
         });
     }
     private Bitmap arrow(){Bitmap b=Bitmap.createBitmap(32,24,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.WHITE);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(5);p.setStrokeCap(Paint.Cap.ROUND);Path path=new Path();path.moveTo(10,5);path.lineTo(20,12);path.lineTo(10,19);c.drawPath(path,p);return b;}
-    void setRoute(List<org.osmdroid.util.GeoPoint> points){route=points==null?Collections.emptyList():new ArrayList<>(points);if(visible)renderRoute();}
-    void setEvents(List<RouteStore.Event> values){events=values==null?Collections.emptyList():new ArrayList<>(values);if(visible)renderEvents();}
+    void setRoute(List<org.osmdroid.util.GeoPoint> points){List<org.osmdroid.util.GeoPoint> next=points==null?Collections.emptyList():points;long signature=routeSignature(next);if(signature==routeSignature)return;routeSignature=signature;route=new ArrayList<>(next);if(visible)renderRoute();}
+    void setEvents(List<RouteStore.Event> values){List<RouteStore.Event> next=values==null?Collections.emptyList():values;int signature=eventsSignature(next);if(signature==eventsSignature)return;eventsSignature=signature;events=new ArrayList<>(next);if(visible)renderEvents();}
+    private static long routeSignature(List<org.osmdroid.util.GeoPoint> points){if(points==null||points.isEmpty())return 0;long h=points.size();int[] index={0,points.size()/2,points.size()-1};for(int i:index){org.osmdroid.util.GeoPoint p=points.get(i);h=31*h+Double.doubleToLongBits(p.getLatitude());h=31*h+Double.doubleToLongBits(p.getLongitude());}return h;}
+    private static int eventsSignature(List<RouteStore.Event> values){int h=1;if(values!=null)for(RouteStore.Event e:values){h=31*h+(e.type==null?0:e.type.hashCode());h=31*h+(e.label==null?0:e.label.hashCode());long lat=Double.doubleToLongBits(e.lat),lon=Double.doubleToLongBits(e.lon);h=31*h+(int)(lat^(lat>>>32));h=31*h+(int)(lon^(lon>>>32));h=31*h+(int)(e.time^(e.time>>>32));}return h;}
     private void renderEvents(){if(style==null)return;GeoJsonSource source=style.getSourceAs("events");if(source==null)return;List<Feature> features=new ArrayList<>();for(RouteStore.Event e:events){Feature f=Feature.fromGeometry(Point.fromLngLat(e.lon,e.lat));f.addStringProperty("label",e.label);features.add(f);}source.setGeoJson(FeatureCollection.fromFeatures(features));}
     private void renderRoute(){if(style==null||!style.isFullyLoaded())return;GeoJsonSource source=style.getSourceAs("route");if(source==null)return;
         List<Point> p=new ArrayList<>();int stride=Math.max(1,(int)Math.ceil(route.size()/(double)MAX_ROUTE_RENDER_POINTS));for(int i=0;i<route.size();i+=stride){org.osmdroid.util.GeoPoint x=route.get(i);p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));}if(!route.isEmpty()&&((route.size()-1)%stride)!=0){org.osmdroid.util.GeoPoint x=route.get(route.size()-1);p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));}
-        List<Point> ahead=new ArrayList<>();double distance=0;org.osmdroid.util.GeoPoint previous=null;for(org.osmdroid.util.GeoPoint x:route){if(previous!=null){float[] d=new float[1];Location.distanceBetween(previous.getLatitude(),previous.getLongitude(),x.getLatitude(),x.getLongitude(),d);distance+=d[0];}if(ahead.size()<MAX_ARROW_RENDER_POINTS)ahead.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));previous=x;if(distance>350)break;}
+        int aheadEnd=0;double distance=0;for(int i=1;i<p.size();i++){float[] d=new float[1];Location.distanceBetween(p.get(i-1).latitude(),p.get(i-1).longitude(),p.get(i).latitude(),p.get(i).longitude(),d);distance+=d[0];aheadEnd=i;if(distance>350)break;}
+        List<Point> ahead=new ArrayList<>();int aheadCount=aheadEnd+1,aheadStride=Math.max(1,(int)Math.ceil(aheadCount/(double)MAX_ARROW_RENDER_POINTS));for(int i=0;i<=aheadEnd&&i<p.size();i+=aheadStride)ahead.add(p.get(i));if(aheadEnd>0&&aheadEnd<p.size()&&(ahead.isEmpty()||ahead.get(ahead.size()-1)!=p.get(aheadEnd)))ahead.add(p.get(aheadEnd));
         GeoJsonSource arrows=style.getSourceAs("arrows");if(arrows!=null)arrows.setGeoJson(ahead.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(ahead))}));
         source.setGeoJson(p.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(p))}));
     }
@@ -71,5 +74,5 @@ final class ModernMapController {
     void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
     void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
     void onSaveInstanceState(Bundle state){view.onSaveInstanceState(state);}void onLowMemory(){view.onLowMemory();}
-    void onDestroy(){destroyed=true;style=null;map=null;location=null;route=Collections.emptyList();events=Collections.emptyList();view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
+    void onDestroy(){destroyed=true;style=null;map=null;location=null;route=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
 }
