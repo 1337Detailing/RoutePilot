@@ -219,6 +219,10 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     }
 
     private void openPlan(RouteStore.Summary s){
+        PrintablePlan.open(this,s,store.displayName(s.file));
+    }
+
+    private void openInteractivePlan(RouteStore.Summary s){
         if(s.points.size()<2){toast("Cette tournée ne contient pas assez de points GPS");return;}stopPreviewPlayback();if(page!=null)page.setVisibility(View.GONE);map.setVisibility(View.VISIBLE);topBar.setVisibility(View.GONE);recordSheet.setVisibility(View.GONE);drawSummary(s,false);
         LinearLayout sh=new LinearLayout(this);sh.setOrientation(LinearLayout.VERTICAL);sh.setPadding(dp(15),dp(12),dp(15),dp(14));sh.setBackground(glass(GLASS3,29));sh.setElevation(dp(26));
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);LinearLayout title=new LinearLayout(this);title.setOrientation(LinearLayout.VERTICAL);title.addView(text(store.displayName(s.file),18,Typeface.BOLD,Color.WHITE));title.addView(text(formatDuration(s.durationMs)+"  •  "+formatDistance(s.distanceM)+"  •  "+s.events.size()+" repères",11,Typeface.NORMAL,MUTED));head.addView(title,new LinearLayout.LayoutParams(0,-2,1));TextView focus=circle("▣",GLASS2);focus.setOnClickListener(v->enterFocusMode());LinearLayout.LayoutParams fl=new LinearLayout.LayoutParams(dp(40),dp(40));fl.rightMargin=dp(6);head.addView(focus,fl);TextView close=pill("Fermer",Color.argb(70,255,255,255),11);close.setOnClickListener(v->{press(v);closePlan();});head.addView(close,new LinearLayout.LayoutParams(dp(68),dp(40)));sh.addView(head);
