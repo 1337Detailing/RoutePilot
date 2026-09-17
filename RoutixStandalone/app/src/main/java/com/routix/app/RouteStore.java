@@ -64,17 +64,20 @@ final class RouteStore {
         return d;
     }
 
+    private File originalsDir() {
+        File d=new File(context.getFilesDir(),"route_originals");
+        if(!d.exists())d.mkdirs();
+        return d;
+    }
+
     File draftFile() { return new File(context.getFilesDir(), "routix_draft.gpx"); }
-
     boolean hasDraft() { return prefs.getBoolean("draft_active", false) && draftFile().exists() && draftFile().length() > 256; }
-
     Summary draftSummary() { return parse(draftFile()); }
 
     void saveDraft(List<Point> points, List<Event> events, long startedAt) {
         if (points.isEmpty() && events.isEmpty()) return;
-        if (writeGpx(draftFile(), points, events, startedAt, "Tournée interrompue")) {
+        if (writeGpx(draftFile(), points, events, startedAt, "Tournée interrompue"))
             prefs.edit().putBoolean("draft_active", true).putLong("draft_started_at", startedAt).apply();
-        }
     }
 
     void clearDraft() {
@@ -85,8 +88,7 @@ final class RouteStore {
     File createRoute(List<Point> points, List<Event> events, long startedAt) {
         String stamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.FRANCE).format(new Date(startedAt));
         File out = new File(routesDir(), "Routix_" + stamp + ".gpx");
-        int n=2;
-        while (out.exists()) out = new File(routesDir(), "Routix_"+stamp+"_"+(n++)+".gpx");
+        int n=2; while (out.exists()) out = new File(routesDir(), "Routix_"+stamp+"_"+(n++)+".gpx");
         return writeGpx(out, points, events, startedAt, "Tournée " + stamp) ? out : null;
     }
 
@@ -94,7 +96,7 @@ final class RouteStore {
         try {
             StringBuilder x=new StringBuilder();
             x.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-            x.append("<gpx version=\"1.1\" creator=\"Routix 1.0\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
+            x.append("<gpx version=\"1.1\" creator=\"Routix 1.4\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
             x.append("<metadata><name>").append(escape(title)).append("</name><time>").append(iso(startedAt)).append("</time></metadata>\n");
             for (Event e:events) {
                 x.append("<wpt lat=\"").append(e.lat).append("\" lon=\"").append(e.lon).append("\">");
@@ -121,35 +123,30 @@ final class RouteStore {
     }
 
     List<Summary> summaries() {
-        List<Summary> out=new ArrayList<>();
-        for(File f:routeFiles()) out.add(parse(f));
-        return out;
+        List<Summary> out=new ArrayList<>(); for(File f:routeFiles()) out.add(parse(f)); return out;
     }
 
     Summary parse(File f) {
         Summary s=new Summary(f);
         if (f==null || !f.exists()) return s;
         try(FileInputStream in=new FileInputStream(f)) {
-            XmlPullParser p= XmlPullParserFactory.newInstance().newPullParser();
+            XmlPullParser p=XmlPullParserFactory.newInstance().newPullParser();
             p.setInput(in,"UTF-8");
-            int ev=p.getEventType();
-            boolean w=false,t=false;
-            double lat=0,lon=0;
-            String label="Repère",type="EVENT";
-            long wt=0,tt=0;
-            float wa=0,ta=0;
+            int ev=p.getEventType(); boolean w=false,t=false; String pointTag=null;
+            double lat=0,lon=0; String label="Repère",type="EVENT"; long wt=0,tt=0; float wa=0,ta=0;
             while(ev!=XmlPullParser.END_DOCUMENT) {
                 if(ev==XmlPullParser.START_TAG) {
                     String n=p.getName();
                     if("wpt".equals(n)) { w=true; lat=dbl(p.getAttributeValue(null,"lat")); lon=dbl(p.getAttributeValue(null,"lon")); label="Repère"; type="EVENT"; wt=0; wa=0; }
-                    else if("trkpt".equals(n)) { t=true; lat=dbl(p.getAttributeValue(null,"lat")); lon=dbl(p.getAttributeValue(null,"lon")); tt=0; ta=0; }
+                    else if("trkpt".equals(n)||"rtept".equals(n)) { t=true; pointTag=n; lat=dbl(p.getAttributeValue(null,"lat")); lon=dbl(p.getAttributeValue(null,"lon")); tt=0; ta=0; }
                     else if("name".equals(n)&&w) label=p.nextText();
                     else if("time".equals(n)) { long z=time(p.nextText()); if(w)wt=z; else if(t)tt=z; }
                     else if("event".equals(n)&&w) type=p.nextText();
                     else if("accuracy".equals(n)) { float a=flt(p.nextText()); if(w)wa=a; else if(t)ta=a; }
                 } else if(ev==XmlPullParser.END_TAG) {
-                    if("wpt".equals(p.getName())) { s.events.add(new Event(type,label,lat,lon,wt,wa)); w=false; }
-                    else if("trkpt".equals(p.getName())) { s.points.add(new Point(lat,lon,tt,ta)); if(tt>0){if(s.firstTime==0)s.firstTime=tt;s.lastTime=tt;} t=false; }
+                    String n=p.getName();
+                    if("wpt".equals(n)) { s.events.add(new Event(type,label,lat,lon,wt,wa)); w=false; }
+                    else if(t && n.equals(pointTag)) { s.points.add(new Point(lat,lon,tt,ta)); if(tt>0){if(s.firstTime==0)s.firstTime=tt;s.lastTime=tt;} t=false; pointTag=null; }
                 }
                 ev=p.next();
             }
@@ -164,14 +161,35 @@ final class RouteStore {
 
     File importGpx(Uri uri) {
         if(uri==null)return null;
-        File out=new File(routesDir(),"Import_"+System.currentTimeMillis()+".gpx");
-        try(InputStream in=context.getContentResolver().openInputStream(uri); FileOutputStream os=new FileOutputStream(out)) {
+        long stamp=System.currentTimeMillis();
+        File original=new File(originalsDir(),"Original_"+stamp+".gpx");
+        File out=new File(routesDir(),"Import_"+stamp+".gpx");
+        try(InputStream in=context.getContentResolver().openInputStream(uri); FileOutputStream os=new FileOutputStream(original)) {
             if(in==null)return null;
             byte[] b=new byte[8192]; int n; while((n=in.read(b))>0)os.write(b,0,n);
-            Summary s=parse(out);
-            if(s.points.size()<2){out.delete();return null;}
-            return out;
-        } catch(Exception e){ if(out.exists())out.delete(); return null; }
+        } catch(Exception e){ if(original.exists())original.delete(); return null; }
+
+        Summary raw=parse(original);
+        RouteNormalizer.Result clean=RouteNormalizer.normalize(raw.points);
+        if(clean.points.size()<2){ original.delete(); return null; }
+        long started=raw.firstTime>0?raw.firstTime:stamp;
+        if(!writeGpx(out,clean.points,raw.events,started,"Import optimisé Routix")) { original.delete(); return null; }
+        prefs.edit()
+                .putString("original_"+out.getName(),original.getAbsolutePath())
+                .putInt("import_input_"+out.getName(),clean.inputCount)
+                .putInt("import_output_"+out.getName(),clean.points.size())
+                .putInt("import_invalid_"+out.getName(),clean.invalidRemoved)
+                .putInt("import_duplicates_"+out.getName(),clean.duplicateRemoved)
+                .putInt("import_simplified_"+out.getName(),clean.simplifiedRemoved)
+                .apply();
+        return out;
+    }
+
+    File originalFor(File f) {
+        if(f==null)return null;
+        String path=prefs.getString("original_"+f.getName(),null);
+        if(path==null)return null;
+        File original=new File(path); return original.exists()?original:null;
     }
 
     String displayName(File f) {
@@ -180,20 +198,20 @@ final class RouteStore {
         return f.getName().replace("Routix_","Tournée ").replace("Import_","Import ").replace(".gpx","").replace('_',' ');
     }
 
-    void rename(File f,String name) {
-        if(f!=null&&name!=null&&!name.trim().isEmpty()) prefs.edit().putString("route_name_"+f.getName(),name.trim()).apply();
-    }
+    void rename(File f,String name) { if(f!=null&&name!=null&&!name.trim().isEmpty()) prefs.edit().putString("route_name_"+f.getName(),name.trim()).apply(); }
 
     boolean delete(File f) {
         if(f==null)return false;
-        prefs.edit().remove("route_name_"+f.getName()).remove("favorite_"+f.getName()).apply();
+        File original=originalFor(f); if(original!=null)original.delete();
+        prefs.edit().remove("route_name_"+f.getName()).remove("favorite_"+f.getName()).remove("original_"+f.getName())
+                .remove("import_input_"+f.getName()).remove("import_output_"+f.getName()).remove("import_invalid_"+f.getName())
+                .remove("import_duplicates_"+f.getName()).remove("import_simplified_"+f.getName()).apply();
         return f.delete();
     }
 
     File duplicate(File f) {
         if(f==null||!f.exists())return null;
-        String base=f.getName().replace(".gpx","");
-        File out=new File(routesDir(),base+"_copie.gpx");int i=2;
+        String base=f.getName().replace(".gpx",""); File out=new File(routesDir(),base+"_copie.gpx"); int i=2;
         while(out.exists())out=new File(routesDir(),base+"_copie_"+(i++)+".gpx");
         try(FileInputStream in=new FileInputStream(f);FileOutputStream os=new FileOutputStream(out)) {
             byte[] b=new byte[8192];int n;while((n=in.read(b))>0)os.write(b,0,n);
