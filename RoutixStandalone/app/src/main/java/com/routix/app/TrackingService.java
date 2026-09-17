@@ -38,7 +38,7 @@ public final class TrackingService extends Service implements LocationListener {
             RouteStore.Summary recovered=file.isEmpty()?null:store.parse(new File(store.routesDir(),new File(file).getName()));boolean validGuidance=recovered!=null&&recovered.points.size()>1;
             if(!file.isEmpty()&&!validGuidance){journal.state("guidance","");journal.state("progress","0");DiagnosticLog.info("stale guidance checkpoint cleared");}
             main.post(()->{if(closed)return;points.addAll(p);events.addAll(e);recording=rec;paused=pause;started=start;for(int i=1;i<points.size();i++)distance+=RouteNormalizer.distanceM(points.get(i-1),points.get(i));if(validGuidance)installGuidance(recovered,progress);ready=true;if(recording||guidance!=null){if(visible&&!foreground)activate();else if(visible||foreground)subscribe();}else idle();publish();if(visible&&!subscribed)subscribe();});
-        }catch(Exception ex){DiagnosticLog.error("session recovery",ex);main.post(()->{ready=true;publish();});}});
+        }catch(Exception ex){DiagnosticLog.error("session recovery",ex);main.post(()->{if(closed)return;ready=true;if(foreground&&!recording&&guidance==null)idle();publish();if(visible&&!subscribed)subscribe();});}});
         main.postDelayed(draft,15000);
     }
     @Override public IBinder onBind(Intent intent){return new LocalBinder();}
