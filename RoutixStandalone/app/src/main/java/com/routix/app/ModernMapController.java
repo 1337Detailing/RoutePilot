@@ -20,9 +20,10 @@ import static org.maplibre.android.style.layers.PropertyFactory.*;
 
 /** Explicit lifecycle and data ownership. No GPS subscription, reflection or polling. */
 final class ModernMapController {
+    private static final int MAX_ROUTE_RENDER_POINTS=6000,MAX_ARROW_RENDER_POINTS=1200;
     private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
     private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList();private Location location;
-    private boolean follow=true,heading=true,destroyed,visible=true;private double bearing;private String styleUri;
+    private boolean follow=true,heading=true,destroyed,visible=true,bearingReady;private double bearing;private String styleUri;
     private List<RouteStore.Event> events=Collections.emptyList();
     private final Bitmap userIcon;
     ModernMapController(Activity activity,FrameLayout root,Bitmap icon,Bundle state){
@@ -33,8 +34,8 @@ final class ModernMapController {
         view.addOnDidFailLoadingMapListener(error->DiagnosticLog.info("map style load failed: "+error));
         view.getMapAsync(m->{if(destroyed)return;map=m;map.getUiSettings().setAttributionGravity(Gravity.TOP|Gravity.LEFT);map.getUiSettings().setLogoEnabled(false);refreshStyle();});
     }
-    void refreshStyle(){if(map==null||destroyed)return;styleUri=MapStyles.uri(prefs);style=null;
-        map.setStyle(new Style.Builder().fromUri(styleUri),s->{if(destroyed)return;style=s;
+    void refreshStyle(){if(map==null||destroyed)return;String requested=MapStyles.uri(prefs);styleUri=requested;style=null;
+        map.setStyle(new Style.Builder().fromUri(requested),s->{if(destroyed||!requested.equals(styleUri))return;style=s;
             s.addSource(new GeoJsonSource("route",FeatureCollection.fromFeatures(new Feature[0])));
             s.addSource(new GeoJsonSource("arrows",FeatureCollection.fromFeatures(new Feature[0])));s.addSource(new GeoJsonSource("events",FeatureCollection.fromFeatures(new Feature[0])));
             s.addSource(new GeoJsonSource("position",FeatureCollection.fromFeatures(new Feature[0])));
@@ -49,19 +50,19 @@ final class ModernMapController {
         });
     }
     private Bitmap arrow(){Bitmap b=Bitmap.createBitmap(32,24,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.WHITE);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(5);p.setStrokeCap(Paint.Cap.ROUND);Path path=new Path();path.moveTo(10,5);path.lineTo(20,12);path.lineTo(10,19);c.drawPath(path,p);return b;}
-    void setRoute(List<org.osmdroid.util.GeoPoint> points){route=points;if(visible)renderRoute();}
-    void setEvents(List<RouteStore.Event> values){events=values;if(visible)renderEvents();}
+    void setRoute(List<org.osmdroid.util.GeoPoint> points){route=points==null?Collections.emptyList():new ArrayList<>(points);if(visible)renderRoute();}
+    void setEvents(List<RouteStore.Event> values){events=values==null?Collections.emptyList():new ArrayList<>(values);if(visible)renderEvents();}
     private void renderEvents(){if(style==null)return;GeoJsonSource source=style.getSourceAs("events");if(source==null)return;List<Feature> features=new ArrayList<>();for(RouteStore.Event e:events){Feature f=Feature.fromGeometry(Point.fromLngLat(e.lon,e.lat));f.addStringProperty("label",e.label);features.add(f);}source.setGeoJson(FeatureCollection.fromFeatures(features));}
     private void renderRoute(){if(style==null||!style.isFullyLoaded())return;GeoJsonSource source=style.getSourceAs("route");if(source==null)return;
-        List<Point> p=new ArrayList<>();for(org.osmdroid.util.GeoPoint x:route)p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));
-        List<Point> ahead=new ArrayList<>();double distance=0;for(int i=0;i<p.size();i++){if(i>0){float[] d=new float[1];Location.distanceBetween(p.get(i-1).latitude(),p.get(i-1).longitude(),p.get(i).latitude(),p.get(i).longitude(),d);distance+=d[0];}ahead.add(p.get(i));if(distance>350)break;}
+        List<Point> p=new ArrayList<>();int stride=Math.max(1,(int)Math.ceil(route.size()/(double)MAX_ROUTE_RENDER_POINTS));for(int i=0;i<route.size();i+=stride){org.osmdroid.util.GeoPoint x=route.get(i);p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));}if(!route.isEmpty()&&((route.size()-1)%stride)!=0){org.osmdroid.util.GeoPoint x=route.get(route.size()-1);p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));}
+        List<Point> ahead=new ArrayList<>();double distance=0;org.osmdroid.util.GeoPoint previous=null;for(org.osmdroid.util.GeoPoint x:route){if(previous!=null){float[] d=new float[1];Location.distanceBetween(previous.getLatitude(),previous.getLongitude(),x.getLatitude(),x.getLongitude(),d);distance+=d[0];}if(ahead.size()<MAX_ARROW_RENDER_POINTS)ahead.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));previous=x;if(distance>350)break;}
         GeoJsonSource arrows=style.getSourceAs("arrows");if(arrows!=null)arrows.setGeoJson(ahead.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(ahead))}));
         source.setGeoJson(p.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(p))}));
     }
     void update(Location fix,boolean guiding){location=fix;if(!visible||map==null||style==null||fix==null||destroyed)return;
         if(!MapStyles.uri(prefs).equals(styleUri)){refreshStyle();return;}
         GeoJsonSource source=style.getSourceAs("position");if(source!=null)source.setGeoJson(Feature.fromGeometry(Point.fromLngLat(fix.getLongitude(),fix.getLatitude())));
-        if(heading&&fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.9f&&fix.getAccuracy()<35)bearing=MapStyles.smoothBearing(bearing,fix.getBearing());
+        if(heading&&fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.9f&&fix.getAccuracy()<35){double target=fix.getBearing();bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}
         if(follow){CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(guiding?17.7:16.8).bearing(heading&&guiding?bearing:0).tilt(guiding?30:0).build();map.easeCamera(CameraUpdateFactory.newCameraPosition(next),650);}
     }
     void recenter(Location l,boolean guiding){follow=true;update(l,guiding);}
@@ -70,5 +71,5 @@ final class ModernMapController {
     void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
     void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
     void onSaveInstanceState(Bundle state){view.onSaveInstanceState(state);}void onLowMemory(){view.onLowMemory();}
-    void onDestroy(){destroyed=true;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
+    void onDestroy(){destroyed=true;style=null;map=null;location=null;route=Collections.emptyList();events=Collections.emptyList();view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
 }
