@@ -20,6 +20,8 @@ jobs:
     steps:
     - name: Checkout RoutePilot
       uses: actions/checkout@v7
+      with:
+        fetch-depth: 2
 
     - name: Set up JDK 17
       uses: actions/setup-java@v6
