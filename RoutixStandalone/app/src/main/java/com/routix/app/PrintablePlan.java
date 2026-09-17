@@ -74,7 +74,8 @@ final class PrintablePlan {
         File dir=new File(activity.getCacheDir(),"paper-plans/"+UUID.randomUUID());
         if(!dir.mkdirs())throw new IOException("Espace de stockage indisponible.");
         pdf=new File(dir,"Routix-plan.pdf");
-        try(PdfDocument doc=new PdfDocument()){
+        PdfDocument doc=new PdfDocument();
+        try{
             for(int i=0;i<sheets.size();i++){
                 check();final int page=i+1;activity.runOnUiThread(()->{if(active())progress.setMessage("Création de la page "+page+" / "+sheets.size());});
                 Bitmap bitmap=Bitmap.createBitmap(W,H,Bitmap.Config.RGB_565);
@@ -87,7 +88,7 @@ final class PrintablePlan {
                 }finally{bitmap.recycle();}
             }
             try(OutputStream out=new FileOutputStream(pdf)){doc.writeTo(out);}
-        }
+        }finally{doc.close();}
     }
     private List<PaperRoute.Road> readRoads(String bbox) throws Exception {
         File cacheDir=new File(activity.getCacheDir(),"paper-road-data");cacheDir.mkdirs();
@@ -204,14 +205,15 @@ final class PrintablePlan {
             @Override public void onWrite(PageRange[] ranges,ParcelFileDescriptor destination,CancellationSignal signal,WriteResultCallback callback){
                 new Thread(()->{
                     ArrayList<PageRange> written=new ArrayList<>();
-                    try(PdfDocument doc=new PdfDocument()){
+                    PdfDocument doc=new PdfDocument();
+                    try{
                         for(int i=0;i<images.size();i++){
                             if(signal.isCanceled()){callback.onWriteCancelled();return;}boolean selected=false;for(PageRange range:ranges)if(i>=range.getStart()&&i<=range.getEnd())selected=true;if(!selected)continue;
                             Bitmap bitmap=BitmapFactory.decodeFile(images.get(i).getAbsolutePath());if(bitmap==null)throw new IOException("Page illisible");
                             try{PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,i+1).create());page.getCanvas().drawBitmap(bitmap,null,new Rect(15,15,580,827),new Paint(Paint.FILTER_BITMAP_FLAG));doc.finishPage(page);}finally{bitmap.recycle();}written.add(new PageRange(i,i));
                         }
                         try(OutputStream out=new FileOutputStream(destination.getFileDescriptor())){doc.writeTo(out);}if(signal.isCanceled())callback.onWriteCancelled();else callback.onWriteFinished(written.toArray(new PageRange[0]));
-                    }catch(Exception e){callback.onWriteFailed("Impossible d’imprimer le plan");}
+                    }catch(Exception e){callback.onWriteFailed("Impossible d’imprimer le plan");}finally{doc.close();}
                 },"Routix-print").start();
             }
         },new PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).setColorMode(PrintAttributes.COLOR_MODE_COLOR).build());
