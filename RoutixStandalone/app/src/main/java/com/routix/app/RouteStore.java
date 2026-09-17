@@ -19,8 +19,9 @@ final class RouteStore {
     static final class Summary { final File file; final List<Point> points=new ArrayList<>(); final List<Event> events=new ArrayList<>(); long firstTime,lastTime,durationMs; double distanceM; Summary(File f){file=f;} }
 
     private final Context context; private final SharedPreferences prefs; final RouteArchive archive; private final PersistentRouteBackup backup;
-    RouteStore(Context c,SharedPreferences p){context=c.getApplicationContext();prefs=p;archive=new RouteArchive(c);backup=new PersistentRouteBackup(c);backup.restoreInto(routesDir());}
+    RouteStore(Context c,SharedPreferences p){context=c.getApplicationContext();prefs=p;archive=new RouteArchive(c);backup=new PersistentRouteBackup(c);}
 
+    void restoreBackups(){backup.restoreInto(routesDir());}
     File routesDir(){File d=new File(context.getFilesDir(),"routes");if(!d.exists())d.mkdirs();return d;}
     private File originalsDir(){File d=new File(context.getFilesDir(),"route_originals");if(!d.exists())d.mkdirs();return d;}
     File draftFile(){return new File(context.getFilesDir(),"routix_draft.gpx");}
@@ -73,7 +74,7 @@ final class RouteStore {
     String displayName(File f){if(f==null)return "Tournée";String n=prefs.getString("route_name_"+f.getName(),null);if(n!=null&&!n.trim().isEmpty())return n;return f.getName().replace("Routix_","Tournée ").replace("Import_","Import ").replace(".gpx","").replace('_',' ');}
     void rename(File f,String name){if(f==null||name==null||name.trim().isEmpty())return;try{archive.capture(f,displayName(f),"Avant renommage");}catch(Exception ex){return;}prefs.edit().putString("route_name_"+f.getName(),name.trim()).apply();backup.publish(f);}
     boolean restore(File route,RouteArchive.Version v){try{byte[] c=archive.content(v);File check=new File(context.getCacheDir(),"restore-check.gpx");RouteArchive.atomic(check,c);if(parse(check).points.size()<2){check.delete();return false;}check.delete();archive.capture(route,displayName(route),"Avant restauration");RouteArchive.atomic(route,c);prefs.edit().putString("route_name_"+route.getName(),v.name).apply();backup.publish(route);return true;}catch(Exception ex){return false;}}
-    boolean delete(File f){if(f==null)return false;File o=originalFor(f);if(o!=null)o.delete();prefs.edit().remove("route_name_"+f.getName()).remove("favorite_"+f.getName()).remove("original_"+f.getName()).apply();return f.delete();}
+    boolean delete(File f){if(f==null)return false;context.getSharedPreferences("routix",0).edit().putBoolean("deleted_route_"+f.getName(),true).apply();File o=originalFor(f);if(o!=null)o.delete();prefs.edit().remove("route_name_"+f.getName()).remove("favorite_"+f.getName()).remove("original_"+f.getName()).apply();return f.delete();}
     File duplicate(File f){if(f==null||!f.exists())return null;String base=f.getName().replace(".gpx","");File out=new File(routesDir(),base+"_copie.gpx");int i=2;while(out.exists())out=new File(routesDir(),base+"_copie_"+(i++)+".gpx");try(FileInputStream in=new FileInputStream(f);FileOutputStream os=new FileOutputStream(out)){byte[] b=new byte[8192];int n;while((n=in.read(b))>0)os.write(b,0,n);prefs.edit().putString("route_name_"+out.getName(),displayName(f)+" • copie").apply();backup.publish(out);return out;}catch(Exception ex){return null;}}
     boolean isFavorite(File f){return f!=null&&prefs.getBoolean("favorite_"+f.getName(),false);} void setFavorite(File f,boolean v){if(f!=null)prefs.edit().putBoolean("favorite_"+f.getName(),v).apply();}
 

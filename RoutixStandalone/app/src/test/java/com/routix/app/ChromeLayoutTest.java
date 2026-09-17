@@ -41,6 +41,11 @@ public class ChromeLayoutTest {
                 View header=(View)field(activity,"topBar"),dock=(View)field(activity,"dock"),content=(View)field(activity,"contentHost");
                 assertTrue(header.getBottom()<content.getBottom());assertTrue(dock.getTop()>header.getBottom());assertTrue(dock.getBottom()<=size[1]-24+2);
                 ViewGroup row=(ViewGroup)dock;assertEquals(4,row.getChildCount());for(int i=0;i<4;i++){assertTrue(row.getChildAt(i).getWidth()>=64);assertTrue(row.getChildAt(i).getRight()<=dock.getWidth());}
+                for(String tab:new String[]{"record","routes","more","settings","hours"}){
+                    Method show=RoutixActivity.class.getDeclaredMethod("showTab",String.class,boolean.class);show.setAccessible(true);show.invoke(activity,tab,false);
+                    root.measure(View.MeasureSpec.makeMeasureSpec(size[0],View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(size[1],View.MeasureSpec.EXACTLY));root.layout(0,0,size[0],size[1]);
+                    assertTrue(content.getTop()>=header.getBottom());assertTrue(content.getBottom()<=dock.getTop());
+                }
                 Bitmap bitmap=Bitmap.createBitmap(size[0],size[1],Bitmap.Config.ARGB_8888);root.draw(new Canvas(bitmap));
                 File dir=new File("build/reports/chrome");dir.mkdirs();try(FileOutputStream out=new FileOutputStream(new File(dir,"chrome-v3-"+size[0]+".png"))){bitmap.compress(Bitmap.CompressFormat.PNG,100,out);}bitmap.recycle();
             }
