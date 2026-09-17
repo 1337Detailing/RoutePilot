@@ -27,6 +27,12 @@ final class RouteNormalizer {
     private static final double SHARP_TURN_DEG = 28.0;
     private static final int MIN_SIMPLIFY_POINTS = 8;
 
+    /** Exact passthrough used when the user disables GPX optimization. No point is removed, reordered or simplified. */
+    static Result preserve(List<RouteStore.Point> source) {
+        List<RouteStore.Point> out=source==null?new ArrayList<>():new ArrayList<>(source);
+        return new Result(out,out.size(),0,0,0);
+    }
+
     static Result normalize(List<RouteStore.Point> source) {
         if(source==null || source.isEmpty()) return new Result(Collections.emptyList(),0,0,0,0);
         int invalid=0, dup=0;
