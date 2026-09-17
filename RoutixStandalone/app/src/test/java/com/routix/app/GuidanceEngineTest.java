@@ -44,4 +44,39 @@ public class GuidanceEngineTest {
         GuidanceEngine e=new GuidanceEngine(p,Collections.singletonList(new GuidanceEngine.Event("REVERSE","Retour",q.lat,q.lon,3)));
         GuidanceEngine.State s=fix(e,0,0,1000);assertEquals(150,s.distanceToNextEventM,2);
     }
+
+    @Test public void resumeOnReturnLegNeverResetsToOutboundLeg(){
+        GuidanceEngine e=engine(p(0,0),p(100,0),p(0,0));
+        fix(e,0,0,1000);fix(e,50,0,2000);fix(e,100,0,3000);
+        GuidanceEngine.State before=fix(e,50,0,4000);
+        GuidanceEngine.Point here=p(50,0);
+        assertTrue(e.reposition(here.lat,here.lon));
+        GuidanceEngine.State after=fix(e,50,0,5000);
+        assertEquals(before.remainingM,after.remainingM,.1);
+        assertTrue(after.alongRouteM>=before.alongRouteM);
+        assertEquals(50,after.remainingM,2);
+    }
+    @Test public void resumeAtLoopArrivalDoesNotRestoreWholeRoute(){
+        GuidanceEngine e=engine(p(0,0),p(100,0),p(100,100),p(0,100),p(0,0));
+        fix(e,0,0,1000);fix(e,100,0,2000);fix(e,100,100,3000);fix(e,0,100,4000);
+        assertTrue(fix(e,0,0,5000).finished);
+        GuidanceEngine.Point here=p(0,0);assertTrue(e.reposition(here.lat,here.lon));
+        GuidanceEngine.State after=fix(e,0,0,6000);
+        assertTrue(after.finished);assertEquals(0,after.remainingM,.1);
+    }
+    @Test public void resumeBehindProgressCannotBringBackTravelledTrace(){
+        GuidanceEngine e=engine(p(0,0),p(1000,0));fix(e,0,0,1000);
+        GuidanceEngine.State before=fix(e,100,0,2000);
+        GuidanceEngine.Point slightlyBehind=p(90,0);assertTrue(e.reposition(slightlyBehind.lat,slightlyBehind.lon));
+        GuidanceEngine.State after=fix(e,90,0,3000);assertEquals(before.remainingM,after.remainingM,.1);
+        GuidanceEngine.Point farBehind=p(0,0);assertFalse(e.reposition(farBehind.lat,farBehind.lon));
+        assertEquals(before.remainingM,fix(e,100,0,4000).remainingM,.1);
+    }
+    @Test public void repeatedResumeAndInvalidFixDoNotResetProgress(){
+        GuidanceEngine e=engine(p(1000,0),p(0,0));fix(e,1000,0,1000);fix(e,800,0,2000);
+        GuidanceEngine.Point here=p(800,0);
+        for(int i=0;i<3;i++)assertTrue(e.reposition(here.lat,here.lon));
+        assertFalse(e.reposition(Double.NaN,here.lon));
+        assertEquals(800,fix(e,800,0,3000).remainingM,3);
+    }
 }
