@@ -35,6 +35,7 @@ final class GuidanceEngine {
 
     private final List<Point> points;
     private final List<Event> events;
+    private final int[] eventPointIndexes;
     private final float[] cumulative;
     private int progressIndex;
 
@@ -43,6 +44,11 @@ final class GuidanceEngine {
         this.events=events==null?Collections.emptyList():new ArrayList<>(events);
         cumulative=new float[this.points.size()];
         for(int i=1;i<this.points.size();i++) cumulative[i]=cumulative[i-1]+distance(this.points.get(i-1),this.points.get(i));
+        eventPointIndexes=new int[this.events.size()];
+        for(int i=0;i<this.events.size();i++) {
+            Event e=this.events.get(i);
+            eventPointIndexes[i]=nearestIndexOnWholeRoute(e.lat,e.lon);
+        }
     }
 
     boolean isUsable(){return points.size()>=2;}
@@ -55,39 +61,40 @@ final class GuidanceEngine {
         if(!isUsable()) return new State(0,0,0,Float.MAX_VALUE,0,Float.MAX_VALUE,null,true,false);
         int start=Math.max(0,progressIndex-25);
         int end=Math.min(points.size()-1,Math.max(progressIndex+350,350));
-        int nearest=start;float nearestD=Float.MAX_VALUE;
+        int candidate=start;float candidateD=Float.MAX_VALUE;
         for(int i=start;i<=end;i++) {
             Point p=points.get(i);float d=distance(lat,lon,p.lat,p.lon);
-            if(d<nearestD){nearestD=d;nearest=i;}
+            if(d<candidateD){candidateD=d;candidate=i;}
         }
-        if(nearest>=progressIndex-10) progressIndex=Math.max(progressIndex,nearest);
-        nearest=progressIndex;
+        if(candidate>=progressIndex&&candidateD<=60f) progressIndex=candidate;
+        Point progressPoint=points.get(progressIndex);
+        float distanceToTrace=distance(lat,lon,progressPoint.lat,progressPoint.lon);
 
-        int target=nearest;float ahead=0;
+        int target=progressIndex;float ahead=0;
         while(target<points.size()-1&&ahead<35){ahead+=distance(points.get(target),points.get(target+1));target++;}
-        float remaining=Math.max(0,totalDistanceM()-cumulative[nearest]);
-        int percent=totalDistanceM()<=1?0:Math.min(100,Math.round(cumulative[nearest]*100/totalDistanceM()));
+        float remaining=Math.max(0,totalDistanceM()-cumulative[progressIndex]);
+        int percent=totalDistanceM()<=1?0:Math.min(100,Math.round(cumulative[progressIndex]*100/totalDistanceM()));
 
         Event next=null;float eventD=Float.MAX_VALUE;
-        for(Event e:events) {
-            int ei=nearestIndex(e.lat,e.lon,nearest);
-            if(ei+4<nearest)continue;
-            float along=Math.max(0,cumulative[ei]-cumulative[nearest]);
-            if(along<eventD){eventD=along;next=e;}
+        for(int i=0;i<events.size();i++) {
+            int eventIndex=eventPointIndexes[i];
+            if(eventIndex+4<progressIndex)continue;
+            float along=Math.max(0,cumulative[eventIndex]-cumulative[progressIndex]);
+            if(along<eventD){eventD=along;next=events.get(i);}
         }
-        boolean off=nearestD>45;
-        boolean done=nearest>=points.size()-2||remaining<12;
-        return new State(nearest,target,percent,nearestD,remaining,eventD,next,off,done);
+        boolean off=distanceToTrace>45;
+        boolean done=progressIndex>=points.size()-2||remaining<12;
+        return new State(progressIndex,target,percent,distanceToTrace,remaining,eventD,next,off,done);
     }
 
     Point targetPoint(State s){return points.get(Math.max(0,Math.min(points.size()-1,s.targetIndex)));}
 
-    private int nearestIndex(double lat,double lon,int start) {
-        int best=Math.max(0,Math.min(points.size()-1,start));float bd=Float.MAX_VALUE;
-        for(int i=best;i<points.size();i++) {
+    private int nearestIndexOnWholeRoute(double lat,double lon) {
+        if(points.isEmpty())return 0;
+        int best=0;float bd=Float.MAX_VALUE;
+        for(int i=0;i<points.size();i++) {
             Point p=points.get(i);float d=distance(lat,lon,p.lat,p.lon);
             if(d<bd){bd=d;best=i;}
-            if(i>start+600&&bd<25)break;
         }
         return best;
     }
