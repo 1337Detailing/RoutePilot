@@ -4,6 +4,7 @@ import android.Manifest;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Application;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -11,6 +12,8 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -19,12 +22,14 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import androidx.core.content.ContextCompat;
 
 public final class RoutixApp extends Application implements Application.ActivityLifecycleCallbacks {
     private Activity activeActivity;
     private SpeedometerView speedometer;
+    private TextView classicGpsButton;
     private LocationManager locationManager;
     private LocationListener speedListener;
 
@@ -38,6 +43,7 @@ public final class RoutixApp extends Application implements Application.Activity
         if (!(activity instanceof RoutixActivity)) return;
         activeActivity = activity;
         attachSpeedometer(activity);
+        attachClassicGpsButton(activity);
         startSpeedUpdates();
     }
 
@@ -54,6 +60,26 @@ public final class RoutixApp extends Application implements Application.Activity
         lp.setMargins(dp(activity, 12), dp(activity, 12), dp(activity, 14), dp(activity, 176));
         activity.addContentView(speedometer, lp);
         speedometer.setElevation(dp(activity, 18));
+    }
+
+    private void attachClassicGpsButton(Activity activity) {
+        if (classicGpsButton != null && classicGpsButton.getParent() != null) return;
+        classicGpsButton = new TextView(activity);
+        classicGpsButton.setText("GPS");
+        classicGpsButton.setTextColor(Color.WHITE);
+        classicGpsButton.setTextSize(13);
+        classicGpsButton.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        classicGpsButton.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(88, 190, 255), Color.rgb(10,132,255), Color.rgb(35,86,210)});
+        bg.setCornerRadius(dp(activity, 22));
+        bg.setStroke(dp(activity,1), Color.argb(105,255,255,255));
+        classicGpsButton.setBackground(bg);
+        classicGpsButton.setElevation(dp(activity,18));
+        classicGpsButton.setOnClickListener(v -> activity.startActivity(new Intent(activity, ClassicNavigationActivity.class)));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(activity, 64), dp(activity, 48), Gravity.START | Gravity.BOTTOM);
+        lp.setMargins(dp(activity,14),0,0,dp(activity,190));
+        activity.addContentView(classicGpsButton, lp);
     }
 
     private void startSpeedUpdates() {
@@ -89,7 +115,12 @@ public final class RoutixApp extends Application implements Application.Activity
     @Override public void onActivityStopped(Activity a) {}
     @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}
     @Override public void onActivityDestroyed(Activity a) {
-        if (a == activeActivity) { stopSpeedUpdates(); activeActivity = null; speedometer = null; }
+        if (a == activeActivity) {
+            stopSpeedUpdates();
+            activeActivity = null;
+            speedometer = null;
+            classicGpsButton = null;
+        }
     }
 
     private static final class SpeedometerView extends View {
@@ -161,14 +192,14 @@ public final class RoutixApp extends Application implements Application.Activity
             p.clearShadowLayer();
 
             text.setTextAlign(Paint.Align.CENTER);
-            text.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
+            text.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
             text.setColor(Color.WHITE);
             text.setTextSize(d(displayedSpeed >= 100f ? 29 : 34));
             Paint.FontMetrics fm = text.getFontMetrics();
             float baseline = cy - (fm.ascent + fm.descent) / 2f - d(5);
             c.drawText(String.valueOf(Math.round(displayedSpeed)), cx, baseline, text);
 
-            text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             text.setTextSize(d(9));
             text.setColor(Color.argb(190, 255, 255, 255));
             c.drawText("km/h", cx, cy + d(24), text);
