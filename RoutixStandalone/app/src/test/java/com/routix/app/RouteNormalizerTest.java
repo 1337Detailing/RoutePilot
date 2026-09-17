@@ -31,6 +31,23 @@ public class RouteNormalizerTest {
         assertEquals(in.get(in.size()-1).lon,r.points.get(r.points.size()-1).lon,0.0);
     }
 
+    @Test public void preserveModeKeepsEveryImportedPointExactly(){
+        List<RouteStore.Point> in=new ArrayList<>();
+        in.add(p(48.0,7.0));
+        in.add(p(48.0,7.000001));
+        in.add(p(48.0,7.000002));
+        in.add(p(48.0,7.000003));
+        RouteNormalizer.Result r=RouteNormalizer.preserve(in);
+        assertEquals(in.size(),r.points.size());
+        assertEquals(0,r.invalidRemoved);
+        assertEquals(0,r.duplicateRemoved);
+        assertEquals(0,r.simplifiedRemoved);
+        for(int i=0;i<in.size();i++){
+            assertEquals(in.get(i).lat,r.points.get(i).lat,0.0);
+            assertEquals(in.get(i).lon,r.points.get(i).lon,0.0);
+        }
+    }
+
     @Test public void preservesOutAndBackLoopShape(){
         List<RouteStore.Point> in=new ArrayList<>();
         in.add(p(48.0,7.0));
