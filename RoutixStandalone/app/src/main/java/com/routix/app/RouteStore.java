@@ -96,7 +96,7 @@ final class RouteStore {
         try {
             StringBuilder x=new StringBuilder();
             x.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-            x.append("<gpx version=\"1.1\" creator=\"Routix 1.4\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
+            x.append("<gpx version=\"1.1\" creator=\"Routix 1.5\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
             x.append("<metadata><name>").append(escape(title)).append("</name><time>").append(iso(startedAt)).append("</time></metadata>\n");
             for (Event e:events) {
                 x.append("<wpt lat=\"").append(e.lat).append("\" lon=\"").append(e.lon).append("\">");
@@ -172,15 +172,24 @@ final class RouteStore {
         Summary raw=parse(original);
         RouteNormalizer.Result clean=RouteNormalizer.normalize(raw.points);
         if(clean.points.size()<2){ original.delete(); return null; }
+
+        RouteMatcher.Result matched=RouteMatcher.matchBlocking(clean.points,raw.events);
+        List<Point> finalPoints=matched.matched?matched.points:clean.points;
+        List<Event> finalEvents=matched.matched?matched.events:raw.events;
         long started=raw.firstTime>0?raw.firstTime:stamp;
-        if(!writeGpx(out,clean.points,raw.events,started,"Import optimisé Routix")) { original.delete(); return null; }
+        String title=matched.matched?"Import Routix • routes reconnues":"Import optimisé Routix";
+        if(!writeGpx(out,finalPoints,finalEvents,started,title)) { original.delete(); return null; }
+
         prefs.edit()
                 .putString("original_"+out.getName(),original.getAbsolutePath())
                 .putInt("import_input_"+out.getName(),clean.inputCount)
-                .putInt("import_output_"+out.getName(),clean.points.size())
+                .putInt("import_output_"+out.getName(),finalPoints.size())
                 .putInt("import_invalid_"+out.getName(),clean.invalidRemoved)
                 .putInt("import_duplicates_"+out.getName(),clean.duplicateRemoved)
                 .putInt("import_simplified_"+out.getName(),clean.simplifiedRemoved)
+                .putBoolean("import_matched_"+out.getName(),matched.matched)
+                .putInt("import_confidence_"+out.getName(),(int)Math.round(matched.confidence*100))
+                .putInt("import_generated_steps_"+out.getName(),Math.max(0,finalEvents.size()-raw.events.size()))
                 .apply();
         return out;
     }
@@ -205,7 +214,8 @@ final class RouteStore {
         File original=originalFor(f); if(original!=null)original.delete();
         prefs.edit().remove("route_name_"+f.getName()).remove("favorite_"+f.getName()).remove("original_"+f.getName())
                 .remove("import_input_"+f.getName()).remove("import_output_"+f.getName()).remove("import_invalid_"+f.getName())
-                .remove("import_duplicates_"+f.getName()).remove("import_simplified_"+f.getName()).apply();
+                .remove("import_duplicates_"+f.getName()).remove("import_simplified_"+f.getName()).remove("import_matched_"+f.getName())
+                .remove("import_confidence_"+f.getName()).remove("import_generated_steps_"+f.getName()).apply();
         return f.delete();
     }
 
