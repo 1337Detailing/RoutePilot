@@ -6,8 +6,11 @@ import java.util.List;
 
 /**
  * Order-preserving GPS cleanup shared by imported and freshly recorded tours.
- * It removes invalid fixes, obvious GPS spikes and redundant points without
- * merging repeated streets or destroying return passes.
+ * It removes invalid/very inaccurate fixes and redundant points without
+ * merging repeated streets or destroying return passes. Speed plausibility is
+ * deliberately handled later with route context: timestamps in imported GPX
+ * files can be coarse or synthetic, so a single large segment is not enough
+ * evidence to delete a valid point.
  */
 final class RouteNormalizer {
     static final class Result {
@@ -33,10 +36,7 @@ final class RouteNormalizer {
             if(p.accuracy>80 && p.accuracy!=0){invalid++;continue;}
             if(!valid.isEmpty()) {
                 RouteStore.Point prev=valid.get(valid.size()-1);
-                double d=distanceM(prev,p);
-                if(d<MIN_POINT_SPACING_M){dup++;continue;}
-                long dt=p.time>0&&prev.time>0?p.time-prev.time:0;
-                if(dt>0 && dt<4000 && d>Math.max(140,dt*.11)){invalid++;continue;}
+                if(distanceM(prev,p)<MIN_POINT_SPACING_M){dup++;continue;}
             }
             valid.add(p);
         }
@@ -100,7 +100,6 @@ final class RouteNormalizer {
     }
 
     private static double segmentDistanceM(RouteStore.Point p,RouteStore.Point a,RouteStore.Point b){
-        // Project relative to A to avoid precision loss from very large absolute metre coordinates.
         double lat0=Math.toRadians((a.lat+b.lat+p.lat)/3.0);
         double kx=111320.0*Math.cos(lat0), ky=110540.0;
         double bx=(b.lon-a.lon)*kx, by=(b.lat-a.lat)*ky;
