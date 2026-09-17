@@ -1,4 +1,4 @@
-package com.routepilot.app;
+package com.routix.app;
 
 import android.app.DownloadManager;
 import android.content.Context;
@@ -54,7 +54,7 @@ final class FranceOfflineManager {
         if(dest.exists()&&!isInstalled(c,p))dest.delete();
         DownloadManager dm=(DownloadManager)c.getSystemService(Context.DOWNLOAD_SERVICE);
         DownloadManager.Request r=new DownloadManager.Request(Uri.parse(p.url));
-        r.setTitle("RoutePilot • "+p.label);
+        r.setTitle("Routix • "+p.label);
         r.setDescription("Carte vectorielle hors ligne");
         r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         r.setAllowedOverMetered(true);r.setAllowedOverRoaming(false);

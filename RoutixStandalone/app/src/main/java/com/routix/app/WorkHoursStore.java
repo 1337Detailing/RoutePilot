@@ -1,4 +1,4 @@
-package com.routepilot.app;
+package com.routix.app;
 
 import android.content.SharedPreferences;
 import org.json.JSONArray;

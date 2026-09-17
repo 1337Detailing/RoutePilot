@@ -1,6 +1,6 @@
-# RoutePilot
+# Routix
 
-RoutePilot est une application Android de tournées terrain centrée sur trois usages : enregistrer une tournée GPS réelle, conserver des repères métier (`Marche arrière` et `2 côtés`) et rejouer la tournée en étant guidé sur la trace originale.
+Routix est une application Android de tournées terrain centrée sur trois usages : enregistrer une tournée GPS réelle, conserver des repères métier (`Marche arrière` et `2 côtés`) et rejouer la tournée en étant guidé sur la trace originale.
 
 ## V1
 
@@ -17,7 +17,7 @@ RoutePilot est une application Android de tournées terrain centrée sur trois u
 - Relecture guidée sur la trace enregistrée, progression, distance restante, prochain repère et détection hors trace
 - Import GPX
 
-Le projet Android actif est dans `RoutePilotStandalone/`.
+Le projet Android actif est dans `RoutixStandalone/`.
 
 ## Build
 
@@ -25,4 +25,4 @@ GitHub Actions construit automatiquement l'APK debug avec `.github/workflows/bui
 
 ## Cartographie
 
-RoutePilot utilise osmdroid/OpenStreetMap pour la carte en ligne et Mapsforge pour les cartes vectorielles hors ligne. Les packs de cartes sont téléchargés séparément de l'APK afin de ne pas gonfler artificiellement l'application.
+Routix utilise osmdroid/OpenStreetMap pour la carte en ligne et Mapsforge pour les cartes vectorielles hors ligne. Les packs de cartes sont téléchargés séparément de l'APK afin de ne pas gonfler artificiellement l'application.

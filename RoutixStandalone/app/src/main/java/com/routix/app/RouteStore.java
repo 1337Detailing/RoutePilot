@@ -1,4 +1,4 @@
-package com.routepilot.app;
+package com.routix.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -64,7 +64,7 @@ final class RouteStore {
         return d;
     }
 
-    File draftFile() { return new File(context.getFilesDir(), "routepilot_draft.gpx"); }
+    File draftFile() { return new File(context.getFilesDir(), "routix_draft.gpx"); }
 
     boolean hasDraft() { return prefs.getBoolean("draft_active", false) && draftFile().exists() && draftFile().length() > 256; }
 
@@ -84,9 +84,9 @@ final class RouteStore {
 
     File createRoute(List<Point> points, List<Event> events, long startedAt) {
         String stamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.FRANCE).format(new Date(startedAt));
-        File out = new File(routesDir(), "RoutePilot_" + stamp + ".gpx");
+        File out = new File(routesDir(), "Routix_" + stamp + ".gpx");
         int n=2;
-        while (out.exists()) out = new File(routesDir(), "RoutePilot_"+stamp+"_"+(n++)+".gpx");
+        while (out.exists()) out = new File(routesDir(), "Routix_"+stamp+"_"+(n++)+".gpx");
         return writeGpx(out, points, events, startedAt, "Tournée " + stamp) ? out : null;
     }
 
@@ -94,11 +94,11 @@ final class RouteStore {
         try {
             StringBuilder x=new StringBuilder();
             x.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-            x.append("<gpx version=\"1.1\" creator=\"RoutePilot 1.0\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routepilot.local/gpx/1\">\n");
+            x.append("<gpx version=\"1.1\" creator=\"Routix 1.0\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:rp=\"https://routix.local/gpx/1\">\n");
             x.append("<metadata><name>").append(escape(title)).append("</name><time>").append(iso(startedAt)).append("</time></metadata>\n");
             for (Event e:events) {
                 x.append("<wpt lat=\"").append(e.lat).append("\" lon=\"").append(e.lon).append("\">");
-                x.append("<time>").append(iso(e.time)).append("</time><name>").append(escape(e.label)).append("</name><type>RoutePilot</type>");
+                x.append("<time>").append(iso(e.time)).append("</time><name>").append(escape(e.label)).append("</name><type>Routix</type>");
                 x.append("<extensions><rp:event>").append(escape(e.type)).append("</rp:event><rp:accuracy>").append(e.accuracy).append("</rp:accuracy></extensions></wpt>\n");
             }
             x.append("<trk><name>").append(escape(title)).append("</name><trkseg>\n");
@@ -177,7 +177,7 @@ final class RouteStore {
     String displayName(File f) {
         String n=prefs.getString("route_name_"+f.getName(),null);
         if(n!=null&&!n.trim().isEmpty())return n;
-        return f.getName().replace("RoutePilot_","Tournée ").replace("Import_","Import ").replace(".gpx","").replace('_',' ');
+        return f.getName().replace("Routix_","Tournée ").replace("Import_","Import ").replace(".gpx","").replace('_',' ');
     }
 
     void rename(File f,String name) {
