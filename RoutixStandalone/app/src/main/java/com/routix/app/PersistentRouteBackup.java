@@ -33,7 +33,7 @@ final class PersistentRouteBackup {
     void publish(File source) {
         if (Build.VERSION.SDK_INT < 29) return;
         if (source == null || !source.exists() || !source.getName().toLowerCase(Locale.ROOT).endsWith(".gpx")) return;
-        try { publishMediaStore(source); } catch (Exception ignored) {}
+        try { publishMediaStore(source); } catch (Exception e) { DiagnosticLog.error("persistent backup publish",e); }
     }
 
     private void publishMediaStore(File source) throws Exception {
@@ -78,7 +78,7 @@ final class PersistentRouteBackup {
     void restoreInto(File destination) {
         if (Build.VERSION.SDK_INT < 29 || destination == null) return;
         if (!destination.exists()) destination.mkdirs();
-        try { restoreMediaStore(destination); } catch (Exception ignored) {}
+        try { restoreMediaStore(destination); } catch (Exception e) { DiagnosticLog.error("persistent backup restore",e); }
     }
 
     private void restoreMediaStore(File destination) {
@@ -96,7 +96,7 @@ final class PersistentRouteBackup {
                 Uri uri = Uri.withAppendedPath(collection, Long.toString(c.getLong(0)));
                 try (InputStream in = cr.openInputStream(uri); OutputStream out = new FileOutputStream(target)) {
                     if (in != null) copy(in, out);
-                } catch (Exception e) { target.delete(); }
+                } catch (Exception e) { target.delete(); DiagnosticLog.error("persistent backup item restore",e); }
             }
         } catch (Exception ignored) {}
     }
