@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - v1-work
     paths:
       - 'RoutePilotStandalone/**'
       - '.github/workflows/build-debug-apk.yml'
@@ -38,11 +39,11 @@ jobs:
     - name: Rename APK
       run: |
         SHA=$(git rev-parse --short HEAD)
-        mv RoutePilotStandalone/app/build/outputs/apk/debug/app-debug.apk RoutePilotStandalone/app/build/outputs/apk/debug/RoutePilot-standalone-$SHA.apk
+        mv RoutePilotStandalone/app/build/outputs/apk/debug/app-debug.apk RoutePilotStandalone/app/build/outputs/apk/debug/RoutePilot-V1-$SHA.apk
 
     - name: Archive APK
       uses: actions/upload-artifact@v7
       with:
-        name: routepilot-standalone-apk
-        path: RoutePilotStandalone/app/build/outputs/apk/debug/RoutePilot-standalone-*.apk
+        name: routepilot-v1-apk
+        path: RoutePilotStandalone/app/build/outputs/apk/debug/RoutePilot-V1-*.apk
         retention-days: 90
