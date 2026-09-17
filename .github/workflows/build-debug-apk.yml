@@ -29,11 +29,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Restore stable Android debug signing key
+      - name: Restore original stable Android debug signing key
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
-          key: routix-debug-signing-v2
+          key: routix-debug-signing-v1
 
       - name: Ensure stable Android debug signing key
         shell: bash
