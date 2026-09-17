@@ -57,8 +57,6 @@ jobs:
       run: |
         git config user.name 'RoutePilot Bot'
         git config user.email 'routepilot-bot@users.noreply.github.com'
-        git show HEAD^:.github/workflows/build-debug-apk.yml > .github/workflows/build-debug-apk.yml
-        git rm -f .github/routepilot_hours_patch.py .github/workflows/routepilot-hours-liquid-glass.yml
-        git add RoutePilotStandalone/app/build.gradle RoutePilotStandalone/app/src/main/java/com/routepilot/app/RoutePilotProActivity.java RoutePilotStandalone/app/src/main/java/com/routepilot/app/OnboardingActivity.java RoutePilotStandalone/app/src/main/java/com/routepilot/app/WorkHoursStore.java .github/workflows/build-debug-apk.yml
+        git add RoutePilotStandalone/app/build.gradle RoutePilotStandalone/app/src/main/java/com/routepilot/app/RoutePilotProActivity.java RoutePilotStandalone/app/src/main/java/com/routepilot/app/OnboardingActivity.java RoutePilotStandalone/app/src/main/java/com/routepilot/app/WorkHoursStore.java
         git commit -m 'Add hours tab and liquid glass privacy onboarding'
         git push origin HEAD:master
