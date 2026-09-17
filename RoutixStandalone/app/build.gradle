@@ -10,8 +10,9 @@ android {
         applicationId 'com.routix.app'
         minSdk 26
         targetSdk 35
-        versionCode 26
-        versionName '1.9.0'
+        def runNumber = System.getenv('GITHUB_RUN_NUMBER')
+        versionCode runNumber ? 200000 + runNumber.toInteger() : 200027
+        versionName runNumber ? "2.0.${runNumber}" : '2.0.0'
     }
 
     testOptions { unitTests.includeAndroidResources = true }
@@ -21,6 +22,7 @@ android {
             minifyEnabled false
         }
         debug {
+            // Keep this stable forever: future CI APKs replace previous Routix debug installs.
             applicationIdSuffix '.debug'
             versionNameSuffix '-debug'
         }

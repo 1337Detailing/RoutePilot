@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Progress measured along segments, independent of recording density. */
+/**
+ * Monotonic, segment-based guidance. Progress is continuous and cannot jump
+ * to a later visit of the same street unless the travelled motion supports it.
+ */
 final class GuidanceEngine {
     static final class Point {
         final double lat,lon;
@@ -32,12 +35,14 @@ final class GuidanceEngine {
         final float along,distance;
         Match(float along,float distance){this.along=along;this.distance=distance;}
     }
+
     private final List<Point> points;
     private final List<Event> events;
     private final float[] cumulative,eventAlong;
     private float progress;
     private Point lastFix;
     private long lastTime;
+    private float offRouteThreshold=45f;
 
     GuidanceEngine(List<Point> points,List<Event> events){
         this.points=points==null?Collections.emptyList():new ArrayList<>(points);
@@ -47,24 +52,27 @@ final class GuidanceEngine {
         eventAlong=new float[this.events.size()];
         for(int i=0;i<eventAlong.length;i++){
             Event e=this.events.get(i);
-            eventAlong[i]=e.routeIndex>=0&&e.routeIndex<cumulative.length?cumulative[e.routeIndex]:match(e.lat,e.lon,0,totalDistanceM(),0,false).along;
+            eventAlong[i]=e.routeIndex>=0&&e.routeIndex<cumulative.length?cumulative[e.routeIndex]:match(e.lat,e.lon,0,totalDistanceM(),0,false,Float.NaN).along;
         }
     }
+
     boolean isUsable(){return points.size()>=2&&totalDistanceM()>1;}
     float totalDistanceM(){return cumulative.length==0?0:cumulative[cumulative.length-1];}
     int currentIndex(){return segmentAt(progress);}
     void reset(){progress=0;lastFix=null;lastTime=0;}
     float progressM(){return progress;}
+    void setOffRouteThreshold(float meters){if(Float.isFinite(meters))offRouteThreshold=Math.max(25,Math.min(90,meters));}
     void restoreProgress(float meters){if(Float.isFinite(meters)){progress=Math.max(0,Math.min(totalDistanceM(),meters));lastFix=null;lastTime=0;}}
     void jumpPoints(int delta){if(!points.isEmpty())progress=cumulative[Math.max(0,Math.min(points.size()-1,currentIndex()+delta))];}
-    /** Explicit user-requested resumption; never silently skip a loop during normal tracking. */
+
+    /** Explicit resumption searches only the untravelled suffix. */
     boolean reposition(double lat,double lon){
         if(!isUsable()||!Double.isFinite(lat)||!Double.isFinite(lon))return false;
-        // Only the untravelled suffix is eligible: completed passes remain completed.
-        Match m=match(lat,lon,progress,totalDistanceM(),0,false);
-        if(m.distance>45)return false;
+        Match m=match(lat,lon,progress,totalDistanceM(),0,false,Float.NaN);
+        if(m.distance>offRouteThreshold)return false;
         progress=Math.max(progress,m.along);lastFix=new Point(lat,lon);lastTime=0;return true;
     }
+
     State update(double lat,double lon){return update(lat,lon,System.currentTimeMillis(),5);}
     State update(double lat,double lon,long time,float accuracy){
         if(!isUsable())return new State(0,0,0,Float.MAX_VALUE,0,Float.MAX_VALUE,null,true,false,0,new Point(lat,lon),false);
@@ -72,24 +80,33 @@ final class GuidanceEngine {
         boolean stale=lastTime>0&&time<=lastTime;
         Point fix=new Point(lat,lon);
         float moved=lastFix==null||poor||stale?0:distance(lastFix,fix);
-        float advance=Math.max(60,Math.min(300,moved*2+20));
-        Match m=poor?new Match(progress,Float.MAX_VALUE):match(lat,lon,Math.max(0,progress-25),Math.min(totalDistanceM(),progress+advance),Math.min(moved,advance),true);
-        boolean off=m.distance>45;
+        long dt=lastTime>0&&time>lastTime?time-lastTime:0;
+        float speed=dt>0?moved/(dt/1000f):Float.NaN;
+        float bearing=lastFix==null||moved<3?Float.NaN:bearing(lastFix,fix);
+
+        float advance=Math.max(60,Math.min(360,moved*2.2f+25+(Float.isFinite(speed)?speed*4:0)));
+        Match m=poor?new Match(progress,Float.MAX_VALUE):
+                match(lat,lon,Math.max(0,progress-28),Math.min(totalDistanceM(),progress+advance),Math.min(moved,advance),true,bearing);
+        boolean off=m.distance>offRouteThreshold;
         if(!poor&&!stale){
             if(!off)progress=Math.max(progress,m.along);
             lastFix=fix;lastTime=time;
         }
+
         float remaining=Math.max(0,totalDistanceM()-progress);
-        int index=segmentAt(progress),target=segmentAt(Math.min(totalDistanceM(),progress+35))+1;
+        int index=segmentAt(progress),target=segmentAt(Math.min(totalDistanceM(),progress+38))+1;
         Event next=null;float nextDistance=Float.MAX_VALUE;
         for(int i=0;i<events.size();i++){
             if(eventAlong[i]+8<progress)continue;
-            float d=Math.max(0,eventAlong[i]-progress);if(d<nextDistance){nextDistance=d;next=events.get(i);}
+            float d=Math.max(0,eventAlong[i]-progress);
+            if(d<nextDistance){nextDistance=d;next=events.get(i);}
         }
         boolean done=!poor&&!off&&remaining<6&&distance(fix,points.get(points.size()-1))<20;
-        return new State(index,Math.min(points.size()-1,target),Math.min(100,(int)(progress*100/totalDistanceM())),m.distance,remaining,nextDistance,next,off,done,progress,pointAt(progress),poor||stale);
+        return new State(index,Math.min(points.size()-1,target),Math.min(100,(int)(progress*100/totalDistanceM())),
+                m.distance,remaining,nextDistance,next,off,done,progress,pointAt(progress),poor||stale);
     }
-    Point targetPoint(State s){return pointAt(Math.min(totalDistanceM(),s.alongRouteM+35));}
+
+    Point targetPoint(State s){return pointAt(Math.min(totalDistanceM(),s.alongRouteM+38));}
     Point pointAt(float along){
         if(points.isEmpty())return new Point(0,0);
         if(points.size()==1)return points.get(0);
@@ -97,11 +114,13 @@ final class GuidanceEngine {
         double t=len<=0?0:Math.max(0,Math.min(1,(along-cumulative[i])/len));Point a=points.get(i),b=points.get(i+1);
         return new Point(a.lat+(b.lat-a.lat)*t,a.lon+(b.lon-a.lon)*t);
     }
+
     private int segmentAt(float along){
         int low=0,high=Math.max(0,points.size()-2);
         while(low<high){int mid=(low+high+1)/2;if(cumulative[mid]<=along)low=mid;else high=mid-1;}return low;
     }
-    private Match match(double lat,double lon,float from,float to,float moved,boolean continuity){
+
+    private Match match(double lat,double lon,float from,float to,float moved,boolean continuity,float travelBearing){
         Match best=new Match(progress,Float.MAX_VALUE);float bestScore=Float.MAX_VALUE;
         if(points.size()<2)return best;
         double mx=111320*Math.cos(Math.toRadians(lat)),my=111320;
@@ -113,15 +132,31 @@ final class GuidanceEngine {
             double lo=Math.max(0,(from-cumulative[i])/len),hi=Math.min(1,(to-cumulative[i])/len);if(lo>hi)continue;
             t=Math.max(lo,Math.min(hi,t));float along=cumulative[i]+len*(float)t;
             float d=(float)Math.hypot(ax+t*vx,ay+t*vy);
-            // Distance + continuity selects this visit, rather than a later visit to the same street.
-            float score=d+(continuity?.12f*Math.abs(along-progress-moved):0);
+
+            float score=d;
+            if(continuity)score+=.12f*Math.abs(along-progress-moved);
+            if(Float.isFinite(travelBearing)&&moved>4){
+                float segBearing=bearing(a,b);
+                float delta=Math.abs(angleDelta(travelBearing,segBearing));
+                score+=Math.min(18f,delta/10f);
+            }
             if(score<bestScore-.01f){bestScore=score;best=new Match(along,d);}
         }
         return best;
     }
+
+    private static float bearing(Point a,Point b){
+        double lat1=Math.toRadians(a.lat),lat2=Math.toRadians(b.lat),dl=Math.toRadians(b.lon-a.lon);
+        double y=Math.sin(dl)*Math.cos(lat2);
+        double x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dl);
+        double deg=Math.toDegrees(Math.atan2(y,x));
+        return (float)((deg+360)%360);
+    }
+    private static float angleDelta(float a,float b){float d=(a-b)%360;if(d>180)d-=360;if(d<-180)d+=360;return d;}
     private static float distance(Point a,Point b){
         double dlat=Math.toRadians(b.lat-a.lat),dlon=Math.toRadians(b.lon-a.lon);
         double h=Math.pow(Math.sin(dlat/2),2)+Math.cos(Math.toRadians(a.lat))*Math.cos(Math.toRadians(b.lat))*Math.pow(Math.sin(dlon/2),2);
         return (float)(6371000*2*Math.asin(Math.sqrt(Math.max(0,Math.min(1,h)))));
+
     }
 }
