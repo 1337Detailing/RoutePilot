@@ -18,7 +18,9 @@ import java.util.Locale;
 
 /**
  * Mirrors GPX routes to public phone storage so they survive uninstall.
- * Android 10+ uses MediaStore.Downloads/Download/Routix; older versions use Downloads/Routix.
+ * Android 10+ uses MediaStore.Downloads/Download/Routix without legacy storage permissions.
+ * Older Android versions are left on private app storage because this app does not request the
+ * broad WRITE_EXTERNAL_STORAGE permission just to persist a route backup.
  */
 final class PersistentRouteBackup {
     private static final String RELATIVE = Environment.DIRECTORY_DOWNLOADS + "/Routix/";
@@ -29,11 +31,9 @@ final class PersistentRouteBackup {
     }
 
     void publish(File source) {
+        if (Build.VERSION.SDK_INT < 29) return;
         if (source == null || !source.exists() || !source.getName().toLowerCase(Locale.ROOT).endsWith(".gpx")) return;
-        try {
-            if (Build.VERSION.SDK_INT >= 29) publishMediaStore(source);
-            else publishLegacy(source);
-        } catch (Exception ignored) {}
+        try { publishMediaStore(source); } catch (Exception ignored) {}
     }
 
     private void publishMediaStore(File source) throws Exception {
@@ -75,22 +75,10 @@ final class PersistentRouteBackup {
         return null;
     }
 
-    private void publishLegacy(File source) throws Exception {
-        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Routix");
-        if (!dir.exists() && !dir.mkdirs()) return;
-        File target = new File(dir, source.getName());
-        try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(target, false)) {
-            copy(in, out);
-        }
-    }
-
     void restoreInto(File destination) {
-        if (destination == null) return;
+        if (Build.VERSION.SDK_INT < 29 || destination == null) return;
         if (!destination.exists()) destination.mkdirs();
-        try {
-            if (Build.VERSION.SDK_INT >= 29) restoreMediaStore(destination);
-            else restoreLegacy(destination);
-        } catch (Exception ignored) {}
+        try { restoreMediaStore(destination); } catch (Exception ignored) {}
     }
 
     private void restoreMediaStore(File destination) {
@@ -111,19 +99,6 @@ final class PersistentRouteBackup {
                 } catch (Exception e) { target.delete(); }
             }
         } catch (Exception ignored) {}
-    }
-
-    private void restoreLegacy(File destination) {
-        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Routix");
-        File[] files = dir.listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(".gpx"));
-        if (files == null) return;
-        for (File f : files) {
-            File target = new File(destination, safeName(f.getName()));
-            if (target.exists() && target.length() > 128) continue;
-            try (InputStream in = new FileInputStream(f); OutputStream out = new FileOutputStream(target)) {
-                copy(in, out);
-            } catch (Exception e) { target.delete(); }
-        }
     }
 
     private static String safeName(String name) {
