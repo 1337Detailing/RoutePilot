@@ -22,6 +22,7 @@ final class RouteNormalizer {
     private static final double MIN_POINT_SPACING_M = 1.25;
     private static final double SIMPLIFY_TOLERANCE_M = 1.8;
     private static final double SHARP_TURN_DEG = 28.0;
+    private static final int MIN_SIMPLIFY_POINTS = 8;
 
     static Result normalize(List<RouteStore.Point> source) {
         if(source==null || source.isEmpty()) return new Result(Collections.emptyList(),0,0,0,0);
@@ -39,7 +40,8 @@ final class RouteNormalizer {
             }
             valid.add(p);
         }
-        if(valid.size()<3) return new Result(valid,source.size(),invalid,dup,0);
+        // Sparse traces carry semantic geometry: never collapse their middle points.
+        if(valid.size()<MIN_SIMPLIFY_POINTS) return new Result(valid,source.size(),invalid,dup,0);
 
         boolean[] keep=new boolean[valid.size()];
         keep[0]=true; keep[valid.size()-1]=true;
@@ -55,12 +57,6 @@ final class RouteNormalizer {
         }
         List<RouteStore.Point> out=new ArrayList<>();
         for(int i=0;i<valid.size();i++) if(keep[i]) out.add(valid.get(i));
-        if(out.size()<Math.min(8,valid.size()) && valid.size()>8) {
-            out.clear();
-            int stride=Math.max(1,valid.size()/Math.max(8,valid.size()/4));
-            for(int i=0;i<valid.size();i+=stride)out.add(valid.get(i));
-            if(out.get(out.size()-1)!=valid.get(valid.size()-1))out.add(valid.get(valid.size()-1));
-        }
         return new Result(out,source.size(),invalid,dup,valid.size()-out.size());
     }
 
@@ -104,14 +100,15 @@ final class RouteNormalizer {
     }
 
     private static double segmentDistanceM(RouteStore.Point p,RouteStore.Point a,RouteStore.Point b){
+        // Project relative to A to avoid precision loss from very large absolute metre coordinates.
         double lat0=Math.toRadians((a.lat+b.lat+p.lat)/3.0);
         double kx=111320.0*Math.cos(lat0), ky=110540.0;
-        double ax=a.lon*kx, ay=a.lat*ky, bx=b.lon*kx, by=b.lat*ky, px=p.lon*kx, py=p.lat*ky;
-        double dx=bx-ax,dy=by-ay;
-        double den=dx*dx+dy*dy;
-        if(den<1e-6)return Math.hypot(px-ax,py-ay);
-        double t=((px-ax)*dx+(py-ay)*dy)/den;
+        double bx=(b.lon-a.lon)*kx, by=(b.lat-a.lat)*ky;
+        double px=(p.lon-a.lon)*kx, py=(p.lat-a.lat)*ky;
+        double den=bx*bx+by*by;
+        if(den<1e-6)return Math.hypot(px,py);
+        double t=(px*bx+py*by)/den;
         t=Math.max(0,Math.min(1,t));
-        return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+        return Math.hypot(px-t*bx,py-t*by);
     }
 }
