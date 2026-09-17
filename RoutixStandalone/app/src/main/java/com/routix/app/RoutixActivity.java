@@ -102,7 +102,10 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private View topBar,recordSheet,dock,page,planSheet,focusRestore,guidanceHud,planLegend;
     private LinearLayout recordBody;
     private TextView gpsChip,mapChip,timeText,distanceText,eventsText,pointsText,recordBtn,reverseBtn,sidesBtn,pauseBtn,undoBtn,collapseBtn;
-    private TextView navMap,navHistory,navHours,navSettings;
+    private TextView navMap,navHistory,navGps,navHours,navSettings;
+    private CompactSpeedometer headerSpeed;
+    private BoundedScrollView recordingScroll;
+    private int systemTop=-1,systemBottom=-1;
 
     private boolean recording,paused,collapsed,focusMode,guiding,guidanceCameraFollow=true,recordingCameraFollow=true,approachingStart;
     private long startedAt,pauseStarted,pausedTotal,lastDraftWrite;
@@ -130,6 +133,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
 
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(),false);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(BG);
         prefs=getSharedPreferences("routix",MODE_PRIVATE);
@@ -145,6 +149,12 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
 
         root=new FrameLayout(this);root.setBackground(appBackground());
         buildMap();buildChrome();setContentView(root);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{
+            androidx.core.graphics.Insets bars=insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()|androidx.core.view.WindowInsetsCompat.Type.displayCutout());
+            systemTop=bars.top;systemBottom=bars.bottom;positionChrome();return insets;
+        });
+        root.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol||b-t!=ob-ot)positionChrome();});
+        androidx.core.view.ViewCompat.requestApplyInsets(root);
         List<File> files=store.routeFiles();if(!files.isEmpty())lastRoute=files.get(0);
         ensureLocation();
         prefs.edit().remove("compact_ui").remove("reduce_motion").apply();
@@ -163,12 +173,14 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     }
 
     private View buildTopBar(){
-        LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(15),dp(9),dp(9),dp(9));bar.setBackground(glass(GLASS,28));bar.setElevation(dp(16));
-        LinearLayout brand=new LinearLayout(this);brand.setOrientation(LinearLayout.VERTICAL);brand.addView(text("Routix",20,Typeface.BOLD,Color.WHITE));brand.addView(text("Navigation de tournée",10,Typeface.NORMAL,MUTED));bar.addView(brand,new LinearLayout.LayoutParams(0,-2,1f));
-        mapChip=chip("OSM",GLASS2);mapChip.setOnClickListener(v->mapSourceMenu());LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-2,dp(36));mp.rightMargin=dp(6);bar.addView(mapChip,mp);
-        gpsChip=chip("GPS…",GLASS2);LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-2,dp(36));gp.rightMargin=dp(6);bar.addView(gpsChip,gp);
-        TextView focus=circle("▣",GLASS2);focus.setOnClickListener(v->enterFocusMode());LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(dp(40),dp(40));fp.rightMargin=dp(6);bar.addView(focus,fp);
-        TextView locate=circle("◎",accent());locate.setOnClickListener(v->{press(v);recenter();});bar.addView(locate,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(12),dp(8),dp(8),dp(8));bar.setBackground(glass(GLASS,24));bar.setElevation(dp(16));
+        headerSpeed=new CompactSpeedometer(this);bar.addView(headerSpeed,new LinearLayout.LayoutParams(0,dp(58),1));
+        mapChip=chip("Carte",GLASS2);mapChip.setTextSize(11);mapChip.setSingleLine(true);mapChip.setEllipsize(android.text.TextUtils.TruncateAt.END);mapChip.setPadding(dp(4),0,dp(4),0);mapChip.setContentDescription("Choisir le fond de carte");mapChip.setOnClickListener(v->mapSourceMenu());
+        LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(68),dp(44));mp.leftMargin=dp(6);bar.addView(mapChip,mp);
+        // GPS quality is represented inside the speedometer, not a competing header badge.
+        gpsChip=new TextView(this);
+        TextView focus=circle("▣",GLASS2);focus.setContentDescription("Afficher la carte en plein écran");focus.setOnClickListener(v->enterFocusMode());LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(dp(44),dp(44));fp.leftMargin=dp(6);bar.addView(focus,fp);
+        TextView locate=circle("◎",accent());locate.setContentDescription("Recentrer sur ma position");locate.setOnClickListener(v->{press(v);recenter();});LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(44),dp(44));lp.leftMargin=dp(6);bar.addView(locate,lp);
         updateMapChip();return bar;
     }
 
@@ -184,11 +196,15 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
         recordBtn=pill("Commencer l’enregistrement",accent(),16);recordBtn.setOnClickListener(v->{press(v);if(recording)requestFinishRecording();else startRecording();});recordBody.addView(recordBtn,new LinearLayout.LayoutParams(-1,dp(58)));
         LinearLayout work=new LinearLayout(this);work.setPadding(0,dp(9),0,0);reverseBtn=pill("↶  Marche arrière",GLASS2,13);sidesBtn=pill("⇆  2 côtés",GLASS2,13);reverseBtn.setOnClickListener(v->addEvent("REVERSE","Marche arrière",ORANGE));sidesBtn.setOnClickListener(v->addEvent("TWO_SIDES","2 côtés",GREEN));reverseBtn.setOnLongClickListener(v->{eventWithNote("REVERSE","Marche arrière",ORANGE);return true;});sidesBtn.setOnLongClickListener(v->{eventWithNote("TWO_SIDES","2 côtés",GREEN);return true;});LinearLayout.LayoutParams w1=new LinearLayout.LayoutParams(0,dp(54),1);w1.rightMargin=dp(5);LinearLayout.LayoutParams w2=new LinearLayout.LayoutParams(0,dp(54),1);w2.leftMargin=dp(5);work.addView(reverseBtn,w1);work.addView(sidesBtn,w2);recordBody.addView(work);
         LinearLayout tools=new LinearLayout(this);tools.setPadding(0,dp(8),0,0);undoBtn=pill("↩ Annuler repère",GLASS2,12);pauseBtn=pill("Ⅱ Pause",GLASS2,12);undoBtn.setOnClickListener(v->undoEvent());pauseBtn.setOnClickListener(v->togglePause());LinearLayout.LayoutParams t1=new LinearLayout.LayoutParams(0,dp(44),1.25f);t1.rightMargin=dp(5);LinearLayout.LayoutParams t2=new LinearLayout.LayoutParams(0,dp(44),.75f);t2.leftMargin=dp(5);tools.addView(undoBtn,t1);tools.addView(pauseBtn,t2);recordBody.addView(tools);
-        enableWorkButtons(false);return sheet;
+        enableWorkButtons(false);recordingScroll=new BoundedScrollView(this);recordingScroll.setBackground(glass(GLASS,26));recordingScroll.addView(sheet);return recordingScroll;
     }
 
     private View buildDock(){
-        LinearLayout d=new LinearLayout(this);d.setGravity(Gravity.CENTER);d.setPadding(dp(7),dp(6),dp(7),dp(6));d.setBackground(glass(Color.argb(205,21,24,32),27));d.setElevation(dp(25));navMap=nav("⌖","Carte");navHistory=nav("≡","Tournées");navHours=nav("◷","Heures");navSettings=nav("⚙","Réglages");navMap.setOnClickListener(v->showMap());navHistory.setOnClickListener(v->showHistory());navHours.setOnClickListener(v->showHours());navSettings.setOnClickListener(v->showSettings());d.addView(navMap,new LinearLayout.LayoutParams(0,dp(58),1));d.addView(navHistory,new LinearLayout.LayoutParams(0,dp(58),1));d.addView(navHours,new LinearLayout.LayoutParams(0,dp(58),1));d.addView(navSettings,new LinearLayout.LayoutParams(0,dp(58),1));return d;
+        LinearLayout dockRow=new LinearLayout(this);dockRow.setGravity(Gravity.CENTER);dockRow.setPadding(dp(6),dp(6),dp(6),dp(6));dockRow.setBackground(glass(Color.argb(245,21,24,32),25));dockRow.setElevation(dp(25));
+        navMap=nav("⌖","Carte");navHistory=nav("≡","Tournées");navGps=nav("⌾","GPS");navHours=nav("◷","Heures");navSettings=nav("⚙","Réglages");
+        navMap.setOnClickListener(v->showMap());navHistory.setOnClickListener(v->showHistory());navGps.setOnClickListener(v->startActivity(new Intent(this,ClassicNavigationActivity.class)));navHours.setOnClickListener(v->showHours());navSettings.setOnClickListener(v->showSettings());
+        for(TextView tab:new TextView[]{navMap,navHistory,navGps,navHours,navSettings}){tab.setTextSize(10);tab.setMaxLines(2);tab.setMinWidth(0);tab.setPadding(0,0,0,0);dockRow.addView(tab,new LinearLayout.LayoutParams(0,dp(56),1));}
+        return dockRow;
     }
 
     private void showMap(){if(guiding)return;exitFocusMode();clearPage();map.setVisibility(View.VISIBLE);topBar.setVisibility(View.VISIBLE);recordSheet.setVisibility(View.VISIBLE);dock.setVisibility(View.VISIBLE);selectTab("map");}
@@ -464,17 +480,51 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     }
 
     private void downloadPack(FranceOfflineManager.Pack p){try{long id=FranceOfflineManager.download(this,p);prefs.edit().putString("pending_map_id",p.id).putLong("pending_download_id",id).putBoolean("auto_activate_maps",true).apply();toast("Téléchargement de "+p.label+" lancé");showSettings();}catch(Exception e){toast("Téléchargement impossible");}}
-    private void activateOffline(FranceOfflineManager.Pack p,boolean notify){if(applyOfflineProvider(p)){prefs.edit().putString("offline_pack",p.id).apply();updateMapChip();if(notify)toast(p.label+" activée hors ligne");showMap();}else toast("Carte hors ligne illisible");}
+    private void activateOffline(FranceOfflineManager.Pack p,boolean notify){if(applyOfflineProvider(p)){ModernMapController modern=modernMap();if(modern!=null)modern.setActive(false);prefs.edit().putString("offline_pack",p.id).apply();updateMapChip();if(notify)toast(p.label+" activée hors ligne");showMap();}else toast("Carte hors ligne illisible");}
     private boolean applyOfflineProvider(FranceOfflineManager.Pack p){try{MapsForgeTileSource src=MapsForgeTileSource.createFromFiles(new File[]{FranceOfflineManager.file(this,p)},InternalRenderTheme.DEFAULT,"RoutixDefault");src.setUserScaleFactor(1.0f);map.setTileProvider(new MapsForgeTileProvider(new SimpleRegisterReceiver(this),src,null));map.setTilesScaledToDpi(false);map.resetTilesScaleFactor();map.setUseDataConnection(false);map.invalidate();return true;}catch(Exception e){return false;}}
     private void applyOnlineProvider(){MapTileProviderBasic online=new MapTileProviderBasic(getApplicationContext(),TileSourceFactory.MAPNIK);map.setTileProvider(online);map.setTileSource(TileSourceFactory.MAPNIK);map.setTilesScaledToDpi(true);map.resetTilesScaleFactor();map.setUseDataConnection(true);map.invalidate();}
-    private void activateOnline(){applyOnlineProvider();prefs.edit().remove("offline_pack").apply();updateMapChip();toast("OpenStreetMap en ligne activée");showMap();}
+    private void activateOnline(){ModernMapController modern=modernMap();if(modern!=null)modern.setActive(false);applyOnlineProvider();prefs.edit().remove("offline_pack").apply();updateMapChip();toast("OpenStreetMap en ligne activée");showMap();}
     private void restoreOfflineMap(){FranceOfflineManager.Pack p=FranceOfflineManager.find(prefs.getString("offline_pack",null));if(p!=null&&FranceOfflineManager.isInstalled(this,p)){map.postDelayed(()->{if(!applyOfflineProvider(p)){prefs.edit().remove("offline_pack").apply();applyOnlineProvider();}updateMapChip();},120);}}
     private void checkPendingMapInstall(){String id=prefs.getString("pending_map_id",null);FranceOfflineManager.Pack p=FranceOfflineManager.find(id);if(p!=null&&FranceOfflineManager.isInstalled(this,p)){prefs.edit().remove("pending_map_id").remove("pending_download_id").apply();if(prefs.getBoolean("auto_activate_maps",true)){applyOfflineProvider(p);prefs.edit().putString("offline_pack",p.id).apply();toast(p.label+" installée et activée");}updateMapChip();}}
-    private void mapSourceMenu(){
-        Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(14),0,dp(14),dp(14));LinearLayout panel=sheetPanel("Source de carte","Choisis le fond utilisé par Routix");TextView online=sheetAction("◎  OpenStreetMap en ligne",Color.argb(62,255,255,255));online.setOnClickListener(v->{press(v);d.dismiss();activateOnline();});panel.addView(online,bottom(8));for(FranceOfflineManager.Pack p:FranceOfflineManager.PACKS)if(FranceOfflineManager.isInstalled(this,p)){TextView row=sheetAction("▧  "+p.label+" • hors ligne",Color.argb(62,255,255,255));row.setOnClickListener(v->{press(v);d.dismiss();activateOffline(p,true);});panel.addView(row,bottom(8));}TextView cancel=sheetAction("Fermer",Color.argb(35,255,255,255));cancel.setOnClickListener(v->d.dismiss());panel.addView(cancel);presentBottomSheet(d,shell,panel);
+    private ModernMapController modernMap(){return ((RoutixApp)getApplication()).mapFor(this);}
+
+    private View mapChoice(String title,String subtitle,boolean selected,Runnable action){
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(14),dp(12),dp(14),dp(12));row.setMinimumHeight(dp(64));row.setBackground(glass(selected?Color.argb(100,10,132,255):Color.argb(40,255,255,255),18));
+        LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);labels.addView(text(title,15,Typeface.BOLD,Color.WHITE));TextView description=text(subtitle,12,Typeface.NORMAL,MUTED);labels.addView(description,top(4));row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        TextView check=text(selected?"✓":"›",22,Typeface.BOLD,selected?CYAN:MUTED);check.setGravity(Gravity.CENTER);row.addView(check,new LinearLayout.LayoutParams(dp(32),dp(40)));row.setOnClickListener(v->{press(v);action.run();});return row;
     }
 
-    private void updateMapChip(){if(mapChip==null)return;FranceOfflineManager.Pack p=FranceOfflineManager.find(prefs.getString("offline_pack",null));mapChip.setText(p==null?"OSM":"OFF • "+p.label);mapChip.setTextColor(p==null?Color.WHITE:GREEN);}
+    private void mapSourceMenu(){
+        Dialog dialog=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(12),0,dp(12),dp(12));
+        LinearLayout panel=sheetPanel("Fond de carte","Choisis le style qui te convient");
+        ModernMapController modern=modernMap();boolean active=modern!=null&&modern.isActive();boolean offline=prefs.getString("offline_pack",null)!=null;
+        panel.addView(mapChoice("Carte moderne","Rues nettes et carte vectorielle",active,()->{dialog.dismiss();if(modern!=null){modern.setActive(true);updateMapChip();}}),bottom(8));
+        panel.addView(mapChoice("OpenStreetMap","Fond classique en ligne",!active&&!offline,()->{dialog.dismiss();activateOnline();}),bottom(8));
+        panel.addView(mapChoice("Cartes hors ligne","Utiliser ou télécharger une région",!active&&offline,()->{dialog.dismiss();root.postDelayed(this::offlineMapSourceMenu,120);}),bottom(14));
+        TextView appearance=text("APPARENCE DE LA CARTE MODERNE",10,Typeface.BOLD,MUTED);panel.addView(appearance,bottom(8));LinearLayout modes=new LinearLayout(this);
+        String mode=prefs.getString("map_appearance","light");
+        for(String name:new String[]{"light","dark"}){
+            TextView choice=pill((name.equals(mode)?"✓  ":"")+("light".equals(name)?"Clair":"Sombre"),name.equals(mode)?accent():GLASS2,13);
+            choice.setOnClickListener(v->{prefs.edit().putString("map_appearance",name).apply();if(modern!=null)modern.refreshStyle();dialog.dismiss();});
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1);if("light".equals(name))lp.rightMargin=dp(8);modes.addView(choice,lp);
+        }
+        panel.addView(modes,bottom(12));TextView close=pill("Fermer",GLASS2,14);close.setOnClickListener(v->dialog.dismiss());panel.addView(close,new LinearLayout.LayoutParams(-1,dp(48)));
+        presentBottomSheet(dialog,shell,panel);
+    }
+
+    private void offlineMapSourceMenu(){
+        Dialog d=new Dialog(this);FrameLayout shell=new FrameLayout(this);shell.setPadding(dp(12),0,dp(12),dp(12));LinearLayout panel=sheetPanel("Cartes hors ligne","Disponibles sans connexion une fois téléchargées");
+        ScrollView scroll=new ScrollView(this);LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);
+        for(FranceOfflineManager.Pack p:FranceOfflineManager.PACKS)if(FranceOfflineManager.isInstalled(this,p))list.addView(mapChoice(p.label,"Carte téléchargée",p.id.equals(prefs.getString("offline_pack",null)),()->{d.dismiss();activateOffline(p,true);}),bottom(8));
+        list.addView(mapChoice("Gérer les cartes","Télécharger une région dans les réglages",false,()->{d.dismiss();showSettings();}));scroll.addView(list);panel.addView(scroll,new LinearLayout.LayoutParams(-1,Math.min(dp(320),getResources().getDisplayMetrics().heightPixels/2)));
+        TextView close=pill("Fermer",GLASS2,14);close.setOnClickListener(v->d.dismiss());panel.addView(close,top(12));presentBottomSheet(d,shell,panel);
+    }
+
+    private void updateMapChip(){
+        if(mapChip==null)return;ModernMapController modern=modernMap();
+        boolean active=modern!=null&&modern.isActive();boolean offline=prefs.getString("offline_pack",null)!=null;
+        mapChip.setText(active?"Moderne":offline?"Hors ligne":"Carte");mapChip.setTextColor(active?CYAN:offline?GREEN:Color.WHITE);
+    }
 
     private void startRecording(){
         if(guiding){toast("Quitte d’abord le guidage");return;}if(!hasLocation()){ensureLocation();return;}points.clear();events.clear();liveDistance=0;liveTrack.setPoints(new ArrayList<>());clearLiveMarkers();store.clearDraft();recording=true;recordingCameraFollow=true;paused=false;startedAt=System.currentTimeMillis();pausedTotal=0;pauseStarted=0;lastDraftWrite=0;recordBtn.setText("Terminer et sauvegarder");recordBtn.setBackground(glass(RED,18));enableWorkButtons(true);timer.removeCallbacks(tick);timer.post(tick);haptic(recordBtn);toast("Tournée démarrée");
@@ -498,7 +548,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private void undoEvent(){if(events.isEmpty()){toast("Aucun repère à annuler");return;}events.remove(events.size()-1);clearLiveMarkers();for(int i=0;i<events.size();i++){RouteStore.Event e=events.get(i);addSubtleMarker(new GeoPoint(e.lat,e.lon),"REVERSE".equals(e.type)?ORANGE:CYAN,"live");}saveDraft(true);refreshRecordingUi();toast("Dernier repère annulé");}
 
     @Override public void onLocationChanged(@NonNull Location l){
-        lastLocation=l;if(gpsChip!=null){int a=Math.round(l.getAccuracy());gpsChip.setText("±"+a+" m");gpsChip.setTextColor(a<=8?GREEN:a<=20?ORANGE:RED);}if(guiding){updateGuidance(l);return;}if(recording&&!paused&&l.getAccuracy()<=60&&append(l)){if(!points.isEmpty()){RouteStore.Point p=points.get(points.size()-1);float[] d=new float[1];Location.distanceBetween(p.lat,p.lon,l.getLatitude(),l.getLongitude(),d);if(d[0]<200)liveDistance+=d[0];}points.add(new RouteStore.Point(l.getLatitude(),l.getLongitude(),l.getTime()>0?l.getTime():System.currentTimeMillis(),l.getAccuracy()));List<GeoPoint> g=new ArrayList<>(liveTrack.getActualPoints());g.add(new GeoPoint(l.getLatitude(),l.getLongitude()));liveTrack.setPoints(g);if(recordingCameraFollow&&prefs.getBoolean("follow",true))map.getController().animateTo(g.get(g.size()-1));saveDraft(false);refreshRecordingUi();}map.invalidate();
+        lastLocation=l;if(headerSpeed!=null)headerSpeed.update(l);if(gpsChip!=null){int a=Math.round(l.getAccuracy());gpsChip.setText("±"+a+" m");gpsChip.setTextColor(a<=8?GREEN:a<=20?ORANGE:RED);}if(guiding){updateGuidance(l);return;}if(recording&&!paused&&l.getAccuracy()<=60&&append(l)){if(!points.isEmpty()){RouteStore.Point p=points.get(points.size()-1);float[] d=new float[1];Location.distanceBetween(p.lat,p.lon,l.getLatitude(),l.getLongitude(),d);if(d[0]<200)liveDistance+=d[0];}points.add(new RouteStore.Point(l.getLatitude(),l.getLongitude(),l.getTime()>0?l.getTime():System.currentTimeMillis(),l.getAccuracy()));List<GeoPoint> g=new ArrayList<>(liveTrack.getActualPoints());g.add(new GeoPoint(l.getLatitude(),l.getLongitude()));liveTrack.setPoints(g);if(recordingCameraFollow&&prefs.getBoolean("follow",true))map.getController().animateTo(g.get(g.size()-1));saveDraft(false);refreshRecordingUi();}map.invalidate();
     }
     private boolean append(Location l){if(points.isEmpty())return true;RouteStore.Point p=points.get(points.size()-1);float[] d=new float[1];Location.distanceBetween(p.lat,p.lon,l.getLatitude(),l.getLongitude(),d);long dt=(l.getTime()>0?l.getTime():System.currentTimeMillis())-p.time;return d[0]>=1.2||dt>=2000;}
     private void saveDraft(boolean force){long now=System.currentTimeMillis();if(!force&&now-lastDraftWrite<10000)return;lastDraftWrite=now;store.saveDraft(points,events,startedAt);}
@@ -554,7 +604,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private void haptic(View v){if(prefs.getBoolean("haptic",true))v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private void enableWorkButtons(boolean e){for(TextView v:new TextView[]{reverseBtn,sidesBtn,pauseBtn,undoBtn}){v.setEnabled(e);v.setAlpha(e?1:.34f);}}
-    private void selectTab(String s){for(TextView v:new TextView[]{navMap,navHistory,navHours,navSettings}){boolean on=(v==navMap&&"map".equals(s))||(v==navHistory&&"history".equals(s))||(v==navHours&&"hours".equals(s))||(v==navSettings&&"settings".equals(s));v.setTextColor(on?Color.WHITE:MUTED);v.setBackground(on?glass(Color.argb(105,Color.red(accent()),Color.green(accent()),Color.blue(accent())),18):null);v.animate().scaleX(on?1.03f:1f).scaleY(on?1.03f:1f).setDuration(180).start();}}
+    private void selectTab(String s){for(TextView v:new TextView[]{navMap,navHistory,navGps,navHours,navSettings}){boolean on=(v==navMap&&"map".equals(s))||(v==navHistory&&"history".equals(s))||(v==navHours&&"hours".equals(s))||(v==navSettings&&"settings".equals(s));v.setTextColor(on?Color.WHITE:MUTED);v.setBackground(on?glass(Color.argb(105,Color.red(accent()),Color.green(accent()),Color.blue(accent())),18):null);v.setScaleX(1f);v.setScaleY(1f);}}
 
 
     private LinearLayout sheetPanel(String title,String subtitle){LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(18),dp(8),dp(18),dp(18));panel.setBackground(glass(Color.argb(248,20,22,29),30));TextView handle=text("—",28,Typeface.BOLD,Color.argb(90,255,255,255));handle.setGravity(Gravity.CENTER);panel.addView(handle,new LinearLayout.LayoutParams(-1,dp(26)));panel.addView(text(title,22,Typeface.BOLD,Color.WHITE));if(subtitle!=null&&!subtitle.isEmpty()){TextView sub=text(subtitle,11,Typeface.NORMAL,MUTED);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.topMargin=dp(4);sp.bottomMargin=dp(14);panel.addView(sub,sp);}return panel;}
@@ -599,7 +649,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
                 if(lastLocation!=null)updateGuidance(lastLocation);map.invalidate();});}).start();}
     private void clearApproachRoute(){approachGuidance=null;approachPath.clear();if(approachTrack!=null){map.getOverlays().remove(approachTrack);approachTrack=null;if(map!=null)map.invalidate();}}
 
-    private void recenter(){if(lastLocation==null){toast("Position GPS en attente");return;}if(guiding)guidanceCameraFollow=true;if(recording)recordingCameraFollow=true;map.getController().animateTo(new GeoPoint(lastLocation.getLatitude(),lastLocation.getLongitude()));if(guiding)map.getController().setZoom(17.4);else if(!recording)map.getController().setZoom(18.2);}
+    private void recenter(){ModernMapController modern=modernMap();if(modern!=null&&modern.isActive()&&lastLocation!=null&&!guiding){modern.recenter(lastLocation);return;}if(lastLocation==null){toast("Position GPS en attente");return;}if(guiding)guidanceCameraFollow=true;if(recording)recordingCameraFollow=true;map.getController().animateTo(new GeoPoint(lastLocation.getLatitude(),lastLocation.getLongitude()));if(guiding)map.getController().setZoom(17.4);else if(!recording)map.getController().setZoom(18.2);}
     private void ensureLocation(){if(hasLocation())enableLocation();else ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},LOCATION_PERMISSION);}
     private boolean hasLocation(){return ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
     private void enableLocation(){me.enableMyLocation();try{lm.requestLocationUpdates(LocationManager.GPS_PROVIDER,1000,0,this);}catch(SecurityException ignored){}}
@@ -607,16 +657,21 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private void applyKeepScreen(){if(prefs.getBoolean("keep_screen_on",true))getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
     private void resetOnboarding(){prefs.edit().putBoolean("onboarding_complete",false).apply();startActivity(new Intent(this,OnboardingActivity.class));finish();}
 
-    private FrameLayout.LayoutParams topLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,dp(68),Gravity.TOP);p.setMargins(dp(12),safeTop(),dp(12),0);return p;}
-    private FrameLayout.LayoutParams sheetLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);p.setMargins(dp(12),0,dp(12),safeBottom()+dp(84));return p;}
-    private FrameLayout.LayoutParams dockLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,dp(68),Gravity.BOTTOM);p.setMargins(dp(24),0,dp(24),safeBottom()+dp(7));return p;}
+    private FrameLayout.LayoutParams topLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP);p.setMargins(dp(12),safeTop(),dp(12),0);return p;}
+    private FrameLayout.LayoutParams sheetLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);p.setMargins(dp(12),0,dp(12),safeBottom()+dp(88));return p;}
+    private FrameLayout.LayoutParams dockLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,dp(68),Gravity.BOTTOM);p.setMargins(dp(12),0,dp(12),safeBottom()+dp(8));return p;}
     private FrameLayout.LayoutParams pageLp(){return new FrameLayout.LayoutParams(-1,-1);}
     private FrameLayout.LayoutParams planLp(){FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,dp(390),Gravity.BOTTOM);p.setMargins(dp(12),0,dp(12),safeBottom()+dp(84));return p;}
     private LinearLayout.LayoutParams bottom(int x){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(x);return p;}
     private LinearLayout.LayoutParams top(int x){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(x);return p;}
     private LinearLayout.LayoutParams weighted(float w,int mr){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(42),w);p.rightMargin=dp(mr);return p;}
-    private int safeTop(){int id=getResources().getIdentifier("status_bar_height","dimen","android");return id>0?getResources().getDimensionPixelSize(id)+dp(7):dp(26);}
-    private int safeBottom(){int id=getResources().getIdentifier("navigation_bar_height","dimen","android");int raw=id>0?getResources().getDimensionPixelSize(id):0;return Math.min(raw,dp(28));}
+    private void positionChrome(){
+        if(topBar!=null)topBar.setLayoutParams(topLp());if(dock!=null)dock.setLayoutParams(dockLp());if(recordSheet!=null)recordSheet.setLayoutParams(sheetLp());if(planSheet!=null)planSheet.setLayoutParams(planLp());
+        if(recordingScroll!=null)recordingScroll.setMaximumHeight(Math.max(dp(80),root.getHeight()-safeTop()-dp(76)-safeBottom()-dp(104)));
+        if(page!=null)page.setPadding(dp(18),safeTop()+dp(18),dp(18),safeBottom()+dp(88));
+    }
+    private int safeTop(){if(systemTop>=0)return systemTop+dp(8);int id=getResources().getIdentifier("status_bar_height","dimen","android");return (id>0?getResources().getDimensionPixelSize(id):dp(24))+dp(8);}
+    private int safeBottom(){if(systemBottom>=0)return systemBottom;int id=getResources().getIdentifier("navigation_bar_height","dimen","android");return id>0?getResources().getDimensionPixelSize(id):0;}
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
 
     private String formatDuration(long ms){long x=Math.max(0,ms/1000),h=x/3600,m=x%3600/60,s=x%60;return h>0?String.format(Locale.FRANCE,"%02d:%02d:%02d",h,m,s):String.format(Locale.FRANCE,"%02d:%02d",m,s);}

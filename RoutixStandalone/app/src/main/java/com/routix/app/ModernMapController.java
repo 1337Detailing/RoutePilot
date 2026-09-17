@@ -49,6 +49,8 @@ final class ModernMapController implements LocationListener {
     private Polyline routeLine;
     private boolean active;
     private boolean firstFix=true;
+    private boolean followUser=true;
+    private org.maplibre.android.annotations.Icon userIcon;
 
     ModernMapController(Activity activity){
         this.activity=activity;
@@ -60,27 +62,32 @@ final class ModernMapController implements LocationListener {
         mapView=new MapView(activity);
         mapView.onCreate((Bundle)null);
         root.addView(mapView,1,new FrameLayout.LayoutParams(-1,-1));
-        mapView.getMapAsync(m->{map=m;map.getUiSettings().setLogoEnabled(false);map.getUiSettings().setAttributionEnabled(true);applyStyle();});
+        mapView.setOnTouchListener((v,e)->{if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN)followUser=false;return false;});
+        mapView.getMapAsync(m->{map=m;map.getUiSettings().setLogoEnabled(false);map.getUiSettings().setAttributionEnabled(true);map.getUiSettings().setAttributionGravity(android.view.Gravity.TOP|android.view.Gravity.LEFT);applyStyle();});
         lm=(LocationManager)activity.getSystemService(Activity.LOCATION_SERVICE);
         setActive("modern".equals(prefs.getString("map_engine","legacy")));
-        handler.post(syncVisibility);
+
     }
 
     void setActive(boolean enable){
         active=enable;
         prefs.edit().putString("map_engine",enable?"modern":"legacy").apply();
         if(mapView!=null)mapView.setVisibility(enable&&legacyMap!=null&&legacyMap.getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);
-        if(legacyMap!=null)legacyMap.setAlpha(enable?0f:1f);
+        if(legacyMap!=null)legacyMap.setAlpha(enable&&!isGuiding()?0f:1f);
         TextView chip=(TextView)getField(activity,"mapChip");
-        if(chip!=null){chip.setText(enable?"MODERN":"OSM");chip.setTextColor(enable?Color.rgb(100,210,255):Color.WHITE);}
+        if(chip!=null){chip.setText(enable?"Moderne":"Carte");chip.setTextColor(enable?Color.rgb(100,210,255):Color.WHITE);}
         if(enable)startLocation();else stopLocation();
     }
 
     boolean isActive(){return active;}
 
+    void refreshStyle(){applyStyle();}
+    private boolean isGuiding(){return Boolean.TRUE.equals(getField(activity,"guiding"));}
+    void recenter(Location location){followUser=true;if(map!=null)map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(),location.getLongitude()),17.5));}
+
     private void applyStyle(){
         if(map==null)return;
-        boolean night=(activity.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
+        boolean night="dark".equals(prefs.getString("map_appearance","light"));
         map.setStyle(new Style.Builder().fromUri(night?STYLE_NIGHT:STYLE_DAY),s->refreshRoute());
     }
 
@@ -94,8 +101,8 @@ final class ModernMapController implements LocationListener {
     @Override public void onLocationChanged(Location l){
         if(!active||map==null||l==null)return;
         LatLng p=new LatLng(l.getLatitude(),l.getLongitude());
-        if(userMarker==null)userMarker=map.addMarker(new MarkerOptions().position(p).title("Vous"));else userMarker.setPosition(p);
-        if(firstFix){map.animateCamera(CameraUpdateFactory.newLatLngZoom(p,17.2));firstFix=false;}
+        if(userMarker==null)userMarker=map.addMarker(new MarkerOptions().position(p).icon(positionIcon()).title("Ma position"));else userMarker.setPosition(p);
+        if(firstFix||followUser){map.animateCamera(CameraUpdateFactory.newLatLngZoom(p,17.2));firstFix=false;}
         refreshRoute();
     }
 
@@ -110,15 +117,24 @@ final class ModernMapController implements LocationListener {
         if(ll.size()>1)routeLine=map.addPolyline(new PolylineOptions().addAll(ll).color(BLUE).width(6f));
     }
 
+    private org.maplibre.android.annotations.Icon positionIcon(){
+        if(userIcon==null){
+            int size=Math.round(36*activity.getResources().getDisplayMetrics().density);android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(size,size,android.graphics.Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(bitmap);android.graphics.Paint p=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setColor(Color.argb(55,10,132,255));c.drawCircle(size*.5f,size*.5f,size*.49f,p);p.setColor(Color.WHITE);c.drawCircle(size*.5f,size*.5f,size*.32f,p);p.setColor(BLUE);c.drawCircle(size*.5f,size*.5f,size*.23f,p);userIcon=org.maplibre.android.annotations.IconFactory.getInstance(activity).fromBitmap(bitmap);
+        }return userIcon;
+    }
     private final Runnable syncVisibility=new Runnable(){@Override public void run(){
-        if(mapView!=null&&legacyMap!=null)mapView.setVisibility(active&&legacyMap.getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);
-        if(active)refreshRoute();
-        handler.postDelayed(this,900);
+        boolean visible=active&&!isGuiding()&&legacyMap!=null&&legacyMap.getVisibility()==View.VISIBLE;
+        if(mapView!=null)mapView.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(legacyMap!=null)legacyMap.setAlpha(visible?0f:1f);
+        if(map!=null){View header=(View)getField(activity,"topBar");int top=header==null?0:header.getBottom();int margin=Math.round(12*activity.getResources().getDisplayMetrics().density);map.getUiSettings().setAttributionMargins(margin,top+margin,0,0);}
+        if(visible)refreshRoute();
+        handler.postDelayed(this,500);
     }};
 
     void onStart(){if(mapView!=null)mapView.onStart();}
-    void onResume(){if(mapView!=null)mapView.onResume();if(active)startLocation();}
-    void onPause(){if(mapView!=null)mapView.onPause();stopLocation();}
+    void onResume(){if(mapView!=null)mapView.onResume();if(active)startLocation();handler.removeCallbacks(syncVisibility);handler.post(syncVisibility);}
+    void onPause(){handler.removeCallbacks(syncVisibility);if(mapView!=null)mapView.onPause();stopLocation();}
     void onStop(){if(mapView!=null)mapView.onStop();}
     void onLowMemory(){if(mapView!=null)mapView.onLowMemory();}
     void onDestroy(){handler.removeCallbacksAndMessages(null);stopLocation();if(mapView!=null)mapView.onDestroy();}
