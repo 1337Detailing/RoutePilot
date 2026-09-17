@@ -11,7 +11,7 @@
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".RoutePilotActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
