@@ -29,7 +29,7 @@ public class ChromeLayoutTest {
     private void set(Object a,String n,int value)throws Exception{Field f=RoutixActivity.class.getDeclaredField(n);f.setAccessible(true);f.setInt(a,value);}
     private void invoke(Object a,String n)throws Exception{Method m=RoutixActivity.class.getDeclaredMethod(n);m.setAccessible(true);m.invoke(a);}
 
-    @Test public void sevenWorkspacesFitSmallScreensWithoutCoveringHeader()throws Exception{
+    @Test public void fourWorkspacesFitSmallScreensWithoutScrolling()throws Exception{
         try(ActivityController<RoutixActivity> controller=Robolectric.buildActivity(RoutixActivity.class).create()){
             RoutixActivity activity=controller.get();
             ((org.osmdroid.views.MapView)field(activity,"map")).setUseDataConnection(false);
@@ -40,7 +40,7 @@ public class ChromeLayoutTest {
                 root.measure(View.MeasureSpec.makeMeasureSpec(size[0],View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(size[1],View.MeasureSpec.EXACTLY));root.layout(0,0,size[0],size[1]);
                 View header=(View)field(activity,"topBar"),dock=(View)field(activity,"dock"),content=(View)field(activity,"contentHost");
                 assertTrue(header.getBottom()<content.getBottom());assertTrue(dock.getTop()>header.getBottom());assertTrue(dock.getBottom()<=size[1]-24+2);
-                HorizontalScrollView hs=(HorizontalScrollView)dock;ViewGroup row=(ViewGroup)hs.getChildAt(0);assertEquals(7,row.getChildCount());
+                ViewGroup row=(ViewGroup)dock;assertEquals(4,row.getChildCount());for(int i=0;i<4;i++){assertTrue(row.getChildAt(i).getWidth()>=64);assertTrue(row.getChildAt(i).getRight()<=dock.getWidth());}
                 Bitmap bitmap=Bitmap.createBitmap(size[0],size[1],Bitmap.Config.ARGB_8888);root.draw(new Canvas(bitmap));
                 File dir=new File("build/reports/chrome");dir.mkdirs();try(FileOutputStream out=new FileOutputStream(new File(dir,"chrome-v3-"+size[0]+".png"))){bitmap.compress(Bitmap.CompressFormat.PNG,100,out);}bitmap.recycle();
             }

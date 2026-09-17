@@ -45,11 +45,12 @@ final class FranceOfflineManager {
     }
 
     static File file(Context c,Pack p){return new File(mapsDir(c),p.fileName);}
-    static boolean isInstalled(Context c,Pack p){File f=file(c,p);return f.exists()&&f.length()>1024*1024;}
+    static boolean isInstalled(Context c,Pack p){File f=file(c,p);long id=c.getSharedPreferences("routix",0).getLong("download_"+p.id,0);if(id>0){DownloadManager dm=(DownloadManager)c.getSystemService(Context.DOWNLOAD_SERVICE);try(Cursor cursor=dm.query(new DownloadManager.Query().setFilterById(id))){if(cursor!=null&&cursor.moveToFirst()&&cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))!=DownloadManager.STATUS_SUCCESSFUL)return false;}catch(RuntimeException e){return false;}}return f.exists()&&f.length()>1024*1024;}
 
     static Pack find(String id){if(id==null)return null;for(Pack p:PACKS)if(id.equals(p.id))return p;return null;}
 
     static long download(Context c,Pack p){
+        long previous=c.getSharedPreferences("routix",0).getLong("download_"+p.id,0);DownloadManager manager=(DownloadManager)c.getSystemService(Context.DOWNLOAD_SERVICE);if(previous>0)manager.remove(previous);
         File dest=file(c,p);
         if(dest.exists()&&!isInstalled(c,p))dest.delete();
         DownloadManager dm=(DownloadManager)c.getSystemService(Context.DOWNLOAD_SERVICE);
@@ -59,7 +60,7 @@ final class FranceOfflineManager {
         r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         r.setAllowedOverMetered(true);r.setAllowedOverRoaming(false);
         r.setDestinationUri(Uri.fromFile(dest));
-        return dm.enqueue(r);
+        long id=dm.enqueue(r);c.getSharedPreferences("routix",0).edit().putLong("download_"+p.id,id).apply();return id;
     }
 
     static int downloadProgress(Context c,long id){

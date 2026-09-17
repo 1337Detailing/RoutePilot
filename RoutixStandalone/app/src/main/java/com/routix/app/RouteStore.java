@@ -24,7 +24,7 @@ final class RouteStore {
     File routesDir(){File d=new File(context.getFilesDir(),"routes");if(!d.exists())d.mkdirs();return d;}
     private File originalsDir(){File d=new File(context.getFilesDir(),"route_originals");if(!d.exists())d.mkdirs();return d;}
     File draftFile(){return new File(context.getFilesDir(),"routix_draft.gpx");}
-    boolean hasDraft(){return prefs.getBoolean("draft_active",false)&&draftFile().exists()&&draftFile().length()>256;}
+    boolean hasDraft(){return draftFile().exists()&&draftFile().length()>256;}
     Summary draftSummary(){return parse(draftFile());}
     void saveDraft(List<Point> p,List<Event> e,long start){if((p==null||p.isEmpty())&&(e==null||e.isEmpty()))return;if(writeGpx(draftFile(),copyP(p),copyE(e),start,"Tournée interrompue"))prefs.edit().putBoolean("draft_active",true).putLong("draft_started_at",start).apply();}
     void clearDraft(){draftFile().delete();prefs.edit().remove("draft_active").remove("draft_started_at").apply();}
@@ -44,7 +44,7 @@ final class RouteStore {
             for(Event e:copyE(events)){x.append("<wpt lat=\"").append(e.lat).append("\" lon=\"").append(e.lon).append("\">");if(e.time>0)x.append("<time>").append(iso(e.time)).append("</time>");x.append("<name>").append(escape(e.label)).append("</name><type>Routix</type><extensions><rp:event>").append(escape(e.type)).append("</rp:event><rp:accuracy>").append(e.accuracy).append("</rp:accuracy></extensions></wpt>\n");}
             x.append("<trk><name>").append(escape(title)).append("</name><trkseg>\n");for(Point p:copyP(points)){x.append("<trkpt lat=\"").append(p.lat).append("\" lon=\"").append(p.lon).append("\">");if(p.time>0)x.append("<time>").append(iso(p.time)).append("</time>");x.append("<extensions><rp:accuracy>").append(p.accuracy).append("</rp:accuracy></extensions></trkpt>\n");}x.append("</trkseg></trk></gpx>\n");
             boolean route=out.getParentFile()!=null&&out.getParentFile().equals(routesDir());if(route&&out.exists())archive.capture(out,displayName(out),"Avant modification du tracé");RouteArchive.atomic(out,x.toString().getBytes(StandardCharsets.UTF_8));if(route)backup.publish(out);return true;
-        }catch(Exception ex){return false;}
+        }catch(Exception ex){DiagnosticLog.error("GPX write",ex);return false;}
     }
 
     List<File> routeFiles(){File[] a=routesDir().listFiles((d,n)->n.toLowerCase(Locale.ROOT).endsWith(".gpx"));if(a==null)return new ArrayList<>();List<File> l=new ArrayList<>(Arrays.asList(a));l.sort((x,y)->Long.compare(y.lastModified(),x.lastModified()));return l;}
@@ -52,16 +52,16 @@ final class RouteStore {
 
     Summary parse(File f){
         Summary s=new Summary(f);if(f==null||!f.exists())return s;
-        try(FileInputStream in=new FileInputStream(f)){XmlPullParser p=XmlPullParserFactory.newInstance().newPullParser();p.setInput(in,"UTF-8");int ev=p.getEventType();boolean w=false,t=false;String pointTag=null;double lat=0,lon=0;String label="Repère",type="EVENT";long wt=0,tt=0;float wa=0,ta=0;
-            while(ev!=XmlPullParser.END_DOCUMENT){if(ev==XmlPullParser.START_TAG){String n=p.getName();if("wpt".equals(n)){w=true;lat=dbl(p.getAttributeValue(null,"lat"));lon=dbl(p.getAttributeValue(null,"lon"));label="Repère";type="EVENT";wt=0;wa=0;}else if("trkpt".equals(n)||"rtept".equals(n)){t=true;pointTag=n;lat=dbl(p.getAttributeValue(null,"lat"));lon=dbl(p.getAttributeValue(null,"lon"));tt=0;ta=0;}else if("name".equals(n)&&w)label=p.nextText();else if("time".equals(n)){long z=time(p.nextText());if(w)wt=z;else if(t)tt=z;}else if("event".equals(n)&&w)type=p.nextText();else if("accuracy".equals(n)){float a=flt(p.nextText());if(w)wa=a;else if(t)ta=a;}}else if(ev==XmlPullParser.END_TAG){String n=p.getName();if("wpt".equals(n)){s.events.add(new Event(type,label,lat,lon,wt,wa));w=false;}else if(t&&n.equals(pointTag)){s.points.add(new Point(lat,lon,tt,ta));if(tt>0){if(s.firstTime==0)s.firstTime=tt;s.lastTime=tt;}t=false;pointTag=null;}}ev=p.next();}}
-        catch(Exception ignored){}
+        try(FileInputStream in=new FileInputStream(f)){XmlPullParserFactory factory=XmlPullParserFactory.newInstance();factory.setNamespaceAware(true);XmlPullParser p=factory.newPullParser();p.setInput(in,"UTF-8");int ev=p.getEventType();boolean w=false,t=false;String pointTag=null;double lat=0,lon=0;String label="Repère",type="EVENT";long wt=0,tt=0;float wa=0,ta=0;
+            while(ev!=XmlPullParser.END_DOCUMENT){if(ev==XmlPullParser.START_TAG){String n=p.getName();if("wpt".equals(n)){w=true;lat=dbl(p.getAttributeValue(null,"lat"));lon=dbl(p.getAttributeValue(null,"lon"));label="Repère";type="EVENT";wt=0;wa=0;}else if("trkpt".equals(n)||"rtept".equals(n)){t=true;pointTag=n;lat=dbl(p.getAttributeValue(null,"lat"));lon=dbl(p.getAttributeValue(null,"lon"));tt=0;ta=0;}else if("name".equals(n)&&w)label=p.nextText();else if("time".equals(n)){long z=time(p.nextText());if(w)wt=z;else if(t)tt=z;}else if("event".equals(n)&&w)type=p.nextText();else if("accuracy".equals(n)){float a=flt(p.nextText());if(w)wa=a;else if(t)ta=a;}}else if(ev==XmlPullParser.END_TAG){String n=p.getName();if("wpt".equals(n)){if(validCoordinates(lat,lon))s.events.add(new Event(type,label,lat,lon,wt,wa));w=false;}else if(t&&n.equals(pointTag)){if(validCoordinates(lat,lon))s.points.add(new Point(lat,lon,tt,ta));if(tt>0){if(s.firstTime==0)s.firstTime=tt;s.lastTime=tt;}t=false;pointTag=null;}}ev=p.next();}}
+        catch(Exception ex){DiagnosticLog.error("GPX parse",ex);s.points.clear();s.events.clear();}
         for(int i=1;i<s.points.size();i++){Point a=s.points.get(i-1),b=s.points.get(i);float[] d=new float[1];Location.distanceBetween(a.lat,a.lon,b.lat,b.lon,d);if(d[0]<500)s.distanceM+=d[0];}s.durationMs=s.lastTime>s.firstTime?s.lastTime-s.firstTime:0;return s;
     }
 
     File importGpx(Uri uri){
         if(uri==null)return null;long stamp=System.currentTimeMillis();File original=new File(originalsDir(),"Original_"+stamp+".gpx"),out=new File(routesDir(),"Import_"+stamp+".gpx");
         try(InputStream in=context.getContentResolver().openInputStream(uri);FileOutputStream os=new FileOutputStream(original)){if(in==null)return null;byte[] b=new byte[8192];int n;while((n=in.read(b))>0)os.write(b,0,n);}catch(Exception ex){original.delete();return null;}
-        Summary raw=parse(original);boolean optimize=prefs.getBoolean("gpx_match_roads",true);
+        Summary raw=parse(original);boolean optimize=prefs.getBoolean("gpx_match_roads",false);
         RouteNormalizer.Result clean=optimize?RouteNormalizer.normalize(raw.points):RouteNormalizer.preserve(raw.points);if(clean.points.size()<2){original.delete();return null;}
         RouteMatcher.Result match=optimize?RouteMatcher.matchBlocking(clean.points,raw.events):new RouteMatcher.Result(clean.points,raw.events,false,1);
         List<Point> p=match.matched?match.points:clean.points;List<Event> e=match.matched?match.events:raw.events;long start=raw.firstTime>0?raw.firstTime:stamp;String title=!optimize?"Import brut Routix":match.matched?"Import Routix • routes reconnues":"Import optimisé Routix";
@@ -78,5 +78,5 @@ final class RouteStore {
     boolean isFavorite(File f){return f!=null&&prefs.getBoolean("favorite_"+f.getName(),false);} void setFavorite(File f,boolean v){if(f!=null)prefs.edit().putBoolean("favorite_"+f.getName(),v).apply();}
 
     private static List<Point> copyP(List<Point> p){return p==null?new ArrayList<>():new ArrayList<>(p);}private static List<Event> copyE(List<Event> e){return e==null?new ArrayList<>():new ArrayList<>(e);}
-    static String iso(long ms){return Instant.ofEpochMilli(Math.max(0,ms)).toString();}static long time(String s){try{return Instant.parse(s).toEpochMilli();}catch(DateTimeParseException ex){return 0;}}static double dbl(String s){try{return Double.parseDouble(s);}catch(Exception ex){return 0;}}static float flt(String s){try{return Float.parseFloat(s);}catch(Exception ex){return 0;}}static String escape(String s){return s==null?"":s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&apos;");}
+    static String iso(long ms){return Instant.ofEpochMilli(Math.max(0,ms)).toString();}static long time(String s){try{return Instant.parse(s).toEpochMilli();}catch(DateTimeParseException ex){return 0;}}static boolean validCoordinates(double lat,double lon){return Double.isFinite(lat)&&Double.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}static double dbl(String s){try{return Double.parseDouble(s);}catch(Exception ex){return Double.NaN;}}static float flt(String s){try{return Float.parseFloat(s);}catch(Exception ex){return 0;}}static String escape(String s){return s==null?"":s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&apos;");}
 }

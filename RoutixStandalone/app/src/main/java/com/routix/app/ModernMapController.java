@@ -2,142 +2,64 @@ package com.routix.app;
 
 import android.app.Activity;
 import android.content.SharedPreferences;
-import android.content.res.Configuration;
-import android.graphics.Color;
+import android.graphics.*;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.View;
+import android.view.*;
 import android.widget.FrameLayout;
-import android.widget.TextView;
-
-import androidx.core.content.ContextCompat;
-
 import org.maplibre.android.MapLibre;
-import org.maplibre.android.annotations.Marker;
-import org.maplibre.android.annotations.MarkerOptions;
-import org.maplibre.android.annotations.Polyline;
-import org.maplibre.android.annotations.PolylineOptions;
-import org.maplibre.android.camera.CameraUpdateFactory;
+import org.maplibre.android.camera.*;
 import org.maplibre.android.geometry.LatLng;
-import org.maplibre.android.maps.MapView;
-import org.maplibre.android.maps.MapLibreMap;
-import org.maplibre.android.maps.Style;
+import org.maplibre.android.maps.*;
+import org.maplibre.android.style.sources.GeoJsonSource;
+import org.maplibre.android.style.layers.*;
+import org.maplibre.geojson.*;
+import java.util.*;
+import static org.maplibre.android.style.layers.PropertyFactory.*;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
-
-/** Optional modern vector-map layer used by the main Routix screen. */
-final class ModernMapController implements LocationListener {
-    private static final String STYLE_DAY="https://tiles.openfreemap.org/styles/liberty";
-    private static final String STYLE_NIGHT="https://tiles.openfreemap.org/styles/dark";
-    private static final int BLUE=Color.rgb(10,132,255);
-
-    private final Activity activity;
-    private final SharedPreferences prefs;
-    private final Handler handler=new Handler(Looper.getMainLooper());
-    private final FrameLayout root;
-    private final View legacyMap;
-    private MapView mapView;
-    private MapLibreMap map;
-    private LocationManager lm;
-    private Marker userMarker;
-    private Polyline routeLine;
-    private boolean active;
-    private boolean firstFix=true;
-    private boolean followUser=true;
-    private org.maplibre.android.annotations.Icon userIcon;
-
-    ModernMapController(Activity activity){
-        this.activity=activity;
-        prefs=activity.getSharedPreferences("routix",Activity.MODE_PRIVATE);
-        root=(FrameLayout)getField(activity,"root");
-        legacyMap=(View)getField(activity,"map");
-        if(root==null||legacyMap==null)return;
-        MapLibre.getInstance(activity);
-        mapView=new MapView(activity);
-        mapView.onCreate((Bundle)null);
-        root.addView(mapView,1,new FrameLayout.LayoutParams(-1,-1));
-        mapView.setOnTouchListener((v,e)->{if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN)followUser=false;return false;});
-        mapView.getMapAsync(m->{map=m;map.getUiSettings().setLogoEnabled(false);map.getUiSettings().setAttributionEnabled(true);map.getUiSettings().setAttributionGravity(android.view.Gravity.TOP|android.view.Gravity.LEFT);applyStyle();});
-        lm=(LocationManager)activity.getSystemService(Activity.LOCATION_SERVICE);
-        setActive("modern".equals(prefs.getString("map_engine","legacy")));
-
+/** Explicit lifecycle and data ownership. No GPS subscription, reflection or polling. */
+final class ModernMapController {
+    private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
+    private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList();private Location location;
+    private boolean follow=true,heading=true,destroyed,visible=true;private double bearing;private String styleUri;
+    private final Bitmap userIcon;
+    ModernMapController(Activity activity,FrameLayout root,Bitmap icon,Bundle state){
+        prefs=activity.getSharedPreferences("routix",0);userIcon=icon;MapLibre.getInstance(activity);
+        view=new MapView(activity,MapLibreMapOptions.createFromAttributes(activity).textureMode(true));view.onCreate(state);
+        root.addView(view,1,new FrameLayout.LayoutParams(-1,-1));
+        view.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)follow=false;return false;});
+        view.addOnDidFailLoadingMapListener(error->DiagnosticLog.info("map style load failed: "+error));
+        view.getMapAsync(m->{if(destroyed)return;map=m;map.getUiSettings().setAttributionGravity(Gravity.TOP|Gravity.LEFT);map.getUiSettings().setLogoEnabled(false);refreshStyle();});
     }
-
-    void setActive(boolean enable){
-        active=enable;
-        prefs.edit().putString("map_engine",enable?"modern":"legacy").apply();
-        if(mapView!=null)mapView.setVisibility(enable&&legacyMap!=null&&legacyMap.getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);
-        if(legacyMap!=null)legacyMap.setAlpha(enable&&!isGuiding()?0f:1f);
-        TextView chip=(TextView)getField(activity,"mapChip");
-        if(chip!=null){chip.setText(enable?"Moderne":"Carte");chip.setTextColor(enable?Color.rgb(100,210,255):Color.WHITE);}
-        if(enable)startLocation();else stopLocation();
+    void refreshStyle(){if(map==null||destroyed)return;styleUri=MapStyles.uri(prefs);style=null;
+        map.setStyle(new Style.Builder().fromUri(styleUri),s->{if(destroyed)return;style=s;
+            s.addSource(new GeoJsonSource("route",FeatureCollection.fromFeatures(new Feature[0])));
+            s.addSource(new GeoJsonSource("position",FeatureCollection.fromFeatures(new Feature[0])));
+            s.addImage("truck",userIcon);s.addImage("direction",arrow());
+            s.addLayer(new LineLayer("route-casing","route").withProperties(lineColor("#ffffff"),lineWidth(9f),lineJoin("round"),lineCap("round")));
+            s.addLayer(new LineLayer("route-line","route").withProperties(lineColor(prefs.getInt("accent_color",0xffcba6f7)),lineWidth(6f),lineJoin("round"),lineCap("round")));
+            s.addLayer(new SymbolLayer("route-arrows","route").withProperties(symbolPlacement("line"),symbolSpacing(75f),iconImage("direction"),iconSize(.65f),iconAllowOverlap(true),iconRotationAlignment("map")));
+            s.addLayer(new SymbolLayer("user","position").withProperties(iconImage("truck"),iconAllowOverlap(true),iconIgnorePlacement(true),iconSize(.75f)));
+            renderRoute();update(location,false);
+        });
     }
-
-    boolean isActive(){return active;}
-
-    void refreshStyle(){applyStyle();}
-    private boolean isGuiding(){return Boolean.TRUE.equals(getField(activity,"guiding"));}
-    void recenter(Location location){followUser=true;if(map!=null)map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(),location.getLongitude()),17.5));}
-
-    private void applyStyle(){
-        if(map==null)return;
-        boolean night="dark".equals(prefs.getString("map_appearance","light"));
-        map.setStyle(new Style.Builder().fromUri(night?STYLE_NIGHT:STYLE_DAY),s->refreshRoute());
+    private Bitmap arrow(){Bitmap b=Bitmap.createBitmap(32,24,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.WHITE);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(5);p.setStrokeCap(Paint.Cap.ROUND);Path path=new Path();path.moveTo(10,5);path.lineTo(20,12);path.lineTo(10,19);c.drawPath(path,p);return b;}
+    void setRoute(List<org.osmdroid.util.GeoPoint> points){route=points;if(visible)renderRoute();}
+    private void renderRoute(){if(style==null||!style.isFullyLoaded())return;GeoJsonSource source=style.getSourceAs("route");if(source==null)return;
+        List<Point> p=new ArrayList<>();for(org.osmdroid.util.GeoPoint x:route)p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));
+        source.setGeoJson(p.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(p))}));
     }
-
-    private void startLocation(){
-        if(lm==null)return;
-        if(ContextCompat.checkSelfPermission(activity,android.Manifest.permission.ACCESS_FINE_LOCATION)!=android.content.pm.PackageManager.PERMISSION_GRANTED&&ContextCompat.checkSelfPermission(activity,android.Manifest.permission.ACCESS_COARSE_LOCATION)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return;
-        try{lm.requestLocationUpdates(LocationManager.GPS_PROVIDER,750L,0f,this);Location l=lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);if(l!=null)onLocationChanged(l);}catch(SecurityException ignored){}
+    void update(Location fix,boolean guiding){location=fix;if(!visible||map==null||style==null||fix==null||destroyed)return;
+        if(!MapStyles.uri(prefs).equals(styleUri)){refreshStyle();return;}
+        GeoJsonSource source=style.getSourceAs("position");if(source!=null)source.setGeoJson(Feature.fromGeometry(Point.fromLngLat(fix.getLongitude(),fix.getLatitude())));
+        if(heading&&fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.9f&&fix.getAccuracy()<35)bearing=MapStyles.smoothBearing(bearing,fix.getBearing());
+        if(follow){CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(guiding?17.7:16.8).bearing(heading&&guiding?bearing:0).tilt(guiding?30:0).build();map.easeCamera(CameraUpdateFactory.newCameraPosition(next),650);}
     }
-    private void stopLocation(){if(lm!=null)try{lm.removeUpdates(this);}catch(Exception ignored){}}
-
-    @Override public void onLocationChanged(Location l){
-        if(!active||map==null||l==null)return;
-        LatLng p=new LatLng(l.getLatitude(),l.getLongitude());
-        if(userMarker==null)userMarker=map.addMarker(new MarkerOptions().position(p).icon(positionIcon()).title("Ma position"));else userMarker.setPosition(p);
-        if(firstFix||followUser){map.animateCamera(CameraUpdateFactory.newLatLngZoom(p,17.2));firstFix=false;}
-        refreshRoute();
-    }
-
-    private void refreshRoute(){
-        if(!active||map==null)return;
-        Object raw=getField(activity,"points");
-        if(!(raw instanceof List))return;
-        List<?> pts=(List<?>)raw;
-        ArrayList<LatLng> ll=new ArrayList<>();
-        for(Object p:pts){try{Field lat=p.getClass().getDeclaredField("lat"),lon=p.getClass().getDeclaredField("lon");lat.setAccessible(true);lon.setAccessible(true);ll.add(new LatLng(lat.getDouble(p),lon.getDouble(p)));}catch(Exception ignored){}}
-        if(routeLine!=null){map.removePolyline(routeLine);routeLine=null;}
-        if(ll.size()>1)routeLine=map.addPolyline(new PolylineOptions().addAll(ll).color(BLUE).width(6f));
-    }
-
-    private org.maplibre.android.annotations.Icon positionIcon(){
-        if(userIcon==null){
-            int size=Math.round(36*activity.getResources().getDisplayMetrics().density);android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(size,size,android.graphics.Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(bitmap);android.graphics.Paint p=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            p.setColor(Color.argb(55,10,132,255));c.drawCircle(size*.5f,size*.5f,size*.49f,p);p.setColor(Color.WHITE);c.drawCircle(size*.5f,size*.5f,size*.32f,p);p.setColor(BLUE);c.drawCircle(size*.5f,size*.5f,size*.23f,p);userIcon=org.maplibre.android.annotations.IconFactory.getInstance(activity).fromBitmap(bitmap);
-        }return userIcon;
-    }
-    private final Runnable syncVisibility=new Runnable(){@Override public void run(){
-        boolean visible=active&&!isGuiding()&&legacyMap!=null&&legacyMap.getVisibility()==View.VISIBLE;
-        if(mapView!=null)mapView.setVisibility(visible?View.VISIBLE:View.GONE);
-        if(legacyMap!=null)legacyMap.setAlpha(visible?0f:1f);
-        if(map!=null){View header=(View)getField(activity,"topBar");int top=header==null?0:header.getBottom();int margin=Math.round(12*activity.getResources().getDisplayMetrics().density);map.getUiSettings().setAttributionMargins(margin,top+margin,0,0);}
-        if(visible)refreshRoute();
-        handler.postDelayed(this,500);
-    }};
-
-    void onStart(){if(mapView!=null)mapView.onStart();}
-    void onResume(){if(mapView!=null)mapView.onResume();if(active)startLocation();handler.removeCallbacks(syncVisibility);handler.post(syncVisibility);}
-    void onPause(){handler.removeCallbacks(syncVisibility);if(mapView!=null)mapView.onPause();stopLocation();}
-    void onStop(){if(mapView!=null)mapView.onStop();}
-    void onLowMemory(){if(mapView!=null)mapView.onLowMemory();}
-    void onDestroy(){handler.removeCallbacksAndMessages(null);stopLocation();if(mapView!=null)mapView.onDestroy();}
-
-    private static Object getField(Object target,String name){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(target);}catch(Exception e){return null;}}
+    void recenter(Location l,boolean guiding){follow=true;update(l,guiding);}
+    void heading(boolean enabled){heading=enabled;follow=true;if(map!=null&&!enabled)map.easeCamera(CameraUpdateFactory.bearingTo(0),400);}
+    void setVisible(boolean enabled){visible=enabled;view.setVisibility(enabled?View.VISIBLE:View.GONE);if(enabled)renderRoute();}
+    void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
+    void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
+    void onSaveInstanceState(Bundle state){view.onSaveInstanceState(state);}void onLowMemory(){view.onLowMemory();}
+    void onDestroy(){destroyed=true;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
 }
