@@ -1,4 +1,4 @@
-name: "Validate Gradle Wrapper"
+name: Validate Gradle Wrapper
 on: [push, pull_request]
 
 permissions:
@@ -6,8 +6,19 @@ permissions:
 
 jobs:
   validation:
-    name: "Validation"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: gradle/wrapper-validation-action@v3
+      - name: Detect committed Gradle wrappers
+        id: wrappers
+        shell: bash
+        run: |
+          if git ls-files | grep -q 'gradle-wrapper.jar$'; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No committed Gradle Wrapper. Routix builds with pinned Gradle 8.10.2 via setup-gradle." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Validate wrapper checksums
+        if: steps.wrappers.outputs.present == 'true'
+        uses: gradle/actions/wrapper-validation@v4
