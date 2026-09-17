@@ -84,7 +84,7 @@ final class PrintablePlan {
                     File png=new File(dir,String.format(Locale.ROOT,"Routix-plan-%03d.png",i+1));
                     try(OutputStream out=new FileOutputStream(png)){if(!bitmap.compress(Bitmap.CompressFormat.PNG,100,out))throw new IOException("Échec de l’image");}images.add(png);
                     PdfDocument.Page p=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,i+1).create());
-                    p.getCanvas().drawBitmap(bitmap,null,new Rect(0,0,595,842),new Paint(Paint.FILTER_BITMAP_FLAG));doc.finishPage(p);
+                    p.getCanvas().scale(595f/W,842f/H);render(p.getCanvas(),i);doc.finishPage(p);
                 }finally{bitmap.recycle();}
             }
             try(OutputStream out=new FileOutputStream(pdf)){doc.writeTo(out);}
@@ -209,8 +209,7 @@ final class PrintablePlan {
                     try{
                         for(int i=0;i<images.size();i++){
                             if(signal.isCanceled()){callback.onWriteCancelled();return;}boolean selected=false;for(PageRange range:ranges)if(i>=range.getStart()&&i<=range.getEnd())selected=true;if(!selected)continue;
-                            Bitmap bitmap=BitmapFactory.decodeFile(images.get(i).getAbsolutePath());if(bitmap==null)throw new IOException("Page illisible");
-                            try{PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,i+1).create());page.getCanvas().drawBitmap(bitmap,null,new Rect(15,15,580,827),new Paint(Paint.FILTER_BITMAP_FLAG));doc.finishPage(page);}finally{bitmap.recycle();}written.add(new PageRange(i,i));
+                            PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,i+1).create());page.getCanvas().translate(15,15);page.getCanvas().scale(565f/W,812f/H);render(page.getCanvas(),i);doc.finishPage(page);written.add(new PageRange(i,i));
                         }
                         try(OutputStream out=new FileOutputStream(destination.getFileDescriptor())){doc.writeTo(out);}if(signal.isCanceled())callback.onWriteCancelled();else callback.onWriteFinished(written.toArray(new PageRange[0]));
                     }catch(Exception e){callback.onWriteFailed("Impossible d’imprimer le plan");}finally{doc.close();}
