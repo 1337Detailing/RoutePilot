@@ -13,8 +13,6 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
@@ -29,7 +27,6 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -48,13 +45,9 @@ import androidx.core.view.WindowInsetsCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.osmdroid.config.Configuration;
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
-import org.osmdroid.tileprovider.tilesource.XYTileSource;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Polyline;
-import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider;
-import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -69,15 +62,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** Routix 3.1 — terrain-first navigation with an Apple-like liquid interface. */
-public class RoutixActivity extends AppCompatActivity implements LocationListener {
+/** Routix 2.1 — terrain-first navigation with an Apple-like liquid interface. */
+public class RoutixActivity extends AppCompatActivity {
     private static final int LOCATION_PERMISSION=42, IMPORT_GPX=1337;
     private static final int BG=Color.rgb(12,13,20), SURFACE=Color.rgb(30,30,46), SURFACE2=Color.rgb(49,50,68);
     private static final int TEXT=Color.rgb(240,242,255), MUTED=Color.rgb(166,173,200), GREEN=Color.rgb(166,227,161), PEACH=Color.rgb(250,179,135), RED=Color.rgb(243,139,168), MAUVE=Color.rgb(203,166,247), BLUE=Color.rgb(137,180,250), PINK=Color.rgb(244,184,228), TEAL=Color.rgb(148,226,213), YELLOW=Color.rgb(249,226,175);
 
-    private SharedPreferences prefs; private RouteStore store; private WorkHoursStore hoursStore; private LocationManager lm; private Location lastLocation;
+    private SharedPreferences prefs; private RouteStore store; private WorkHoursStore hoursStore; private Location lastLocation;
     private ModernMapController modern; private TrackingService tracker; private boolean bound,visible,headingUp=true,offline; private Bundle mapState; private boolean recoveryOffered;
-    private FrameLayout root; private MapView map; private View topBar,dock,recordSheet; private LinearLayout contentHost; private CompactSpeedometer headerSpeed; private MyLocationNewOverlay me; private ImageView mapLogo;
+    private FrameLayout root; private MapView map; private View topBar,dock,recordSheet; private LinearLayout contentHost; private CompactSpeedometer headerSpeed; private ImageView mapLogo;
     private Polyline remainingLine; private RouteArrowsOverlay routeArrows; private int systemTop,systemBottom; private String selectedTab="map"; private int accent=MAUVE;
     private boolean recording,paused,guiding,guidanceCameraFollow=true; private long recordingStarted,guidanceSession; private double recordedDistance;
     private TextView recordMain,recordStatus,recordDistance,recordPoints,recordEvents,reverseButton,twoSidesButton,pauseButton,guideTitle,guideSubtitle,guideDistance,guideProgress;
@@ -85,8 +78,8 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
 
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);mapState=state;WindowCompat.setDecorFitsSystemWindows(getWindow(),false);getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(BG);
-        prefs=getSharedPreferences("routix",MODE_PRIVATE);migrateMapPreference();accent=prefs.getInt("accent_color",MAUVE);store=new RouteStore(this,prefs);hoursStore=new WorkHoursStore(prefs);lm=(LocationManager)getSystemService(LOCATION_SERVICE);
-        Configuration.getInstance().setCacheMapTileCount((short)64);Configuration.getInstance().setTileFileSystemCacheMaxBytes(64L*1024*1024);Configuration.getInstance().setTileFileSystemCacheTrimBytes(48L*1024*1024);Configuration.getInstance().setUserAgentValue(getPackageName()+"/3.1 Routix");Configuration.getInstance().setOsmdroidBasePath(new File(getCacheDir(),"osmdroid"));Configuration.getInstance().setOsmdroidTileCache(new File(getCacheDir(),"osmdroid/tiles"));
+        prefs=getSharedPreferences("routix",MODE_PRIVATE);migrateMapPreference();accent=prefs.getInt("accent_color",MAUVE);store=new RouteStore(this,prefs);hoursStore=new WorkHoursStore(prefs);
+        Configuration.getInstance().setCacheMapTileCount((short)64);Configuration.getInstance().setTileFileSystemCacheMaxBytes(64L*1024*1024);Configuration.getInstance().setTileFileSystemCacheTrimBytes(48L*1024*1024);Configuration.getInstance().setUserAgentValue(getPackageName()+"/2.1 Routix");Configuration.getInstance().setOsmdroidBasePath(new File(getCacheDir(),"osmdroid"));Configuration.getInstance().setOsmdroidTileCache(new File(getCacheDir(),"osmdroid/tiles"));
         root=new FrameLayout(this);root.setBackgroundColor(BG);buildMap();topBar=buildTopBar();contentHost=new LinearLayout(this);contentHost.setOrientation(LinearLayout.VERTICAL);dock=buildDock();root.addView(topBar);root.addView(contentHost);root.addView(dock);setContentView(root);
         ViewCompat.setOnApplyWindowInsetsListener(root,(v,in)->{androidx.core.graphics.Insets b=in.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.displayCutout());systemTop=b.top;systemBottom=b.bottom;positionChrome();return in;});ViewCompat.requestApplyInsets(root);
         showTab("map",false);ensureLocation();applyRuntimePrefs();new Thread(()->{store.restoreBackups();runOnUiThread(()->{if(!isDestroyed()&&"routes".equals(selectedTab))showTab("routes",false);});},"restore-backups").start();
@@ -115,9 +108,6 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
         map.setVisibility(offline&&"map".equals(selectedTab)?View.VISIBLE:View.GONE);map.setAlpha(offline?1:0);if(guiding)redrawGuidance();map.invalidate();
     }
 
-    private void applyPositionIcon(){
-        if(me==null)return;Bitmap icon=createPositionIcon(prefs==null?"Camion":prefs.getString("position_icon","Camion"));me.setDrawAccuracyEnabled(prefs==null||prefs.getBoolean("position_accuracy",true));me.setPersonIcon(icon);me.setDirectionArrow(icon,icon);me.setPersonHotspot(icon.getWidth()/2f,icon.getHeight()/2f);if(map!=null)map.invalidate();
-    }
     private Bitmap createPositionIcon(String style){
         int z=dp(prefs==null?54:prefs.getInt("position_icon_size",54));Bitmap b=Bitmap.createBitmap(z,z,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setShadowLayer(dp(5),0,dp(2),Color.argb(145,0,0,0));p.setColor(Color.argb(226,Color.red(accent),Color.green(accent),Color.blue(accent)));c.drawCircle(z/2f,z/2f,z*.43f,p);p.clearShadowLayer();p.setColor(Color.WHITE);
         if("Bonhomme".equals(style)){c.drawCircle(z*.5f,z*.31f,z*.09f,p);c.drawRoundRect(z*.43f,z*.40f,z*.57f,z*.67f,dp(4),dp(4),p);p.setStrokeWidth(dp(4));p.setStrokeCap(Paint.Cap.ROUND);c.drawLine(z*.45f,z*.51f,z*.34f,z*.61f,p);c.drawLine(z*.55f,z*.51f,z*.66f,z*.61f,p);c.drawLine(z*.47f,z*.65f,z*.40f,z*.78f,p);c.drawLine(z*.53f,z*.65f,z*.60f,z*.78f,p);}
@@ -253,7 +243,7 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     private void resumeGuidanceHere(){if(tracker==null||!tracker.reposition()){toast("Rapproche-toi du tracé avec un GPS précis");return;}guidanceCameraFollow=true;recenter();toast("Progression reprise au point le plus proche");}
     private void stopGuidance(){if(tracker!=null)tracker.stopGuidance();remainingLine.setPoints(new ArrayList<>());routeArrows.setPoints(new ArrayList<>());if(modern!=null){modern.setRoute(new ArrayList<>());modern.setEvents(Collections.emptyList());}showTab("map",true);}
     private void followCamera(Location l){if(l==null)return;if(modern!=null)modern.update(l,guiding);if(offline&&guidanceCameraFollow){map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));if(headingUp&&l.hasBearing()&&l.getSpeed()>.9f)map.setMapOrientation((float)MapStyles.smoothBearing(map.getMapOrientation(),360-l.getBearing()));}}
-    @Override public void onLocationChanged(@NonNull Location l){lastLocation=l;if(headerSpeed!=null)headerSpeed.update(l);if(guiding)updateRouteGuidance(l);else if(modern!=null)modern.update(l,false);if(offline){if(offlinePosition==null){offlinePosition=new org.osmdroid.views.overlay.Marker(map);offlinePosition.setIcon(new android.graphics.drawable.BitmapDrawable(getResources(),createPositionIcon(prefs.getString("position_icon","Camion"))));offlinePosition.setAnchor(.5f,.5f);map.getOverlays().add(offlinePosition);}offlinePosition.setPosition(new GeoPoint(l.getLatitude(),l.getLongitude()));map.invalidate();}}
+    public void onLocationChanged(@NonNull Location l){lastLocation=l;if(headerSpeed!=null)headerSpeed.update(l);if(guiding)updateRouteGuidance(l);else if(modern!=null)modern.update(l,false);if(offline){if(offlinePosition==null){offlinePosition=new org.osmdroid.views.overlay.Marker(map);offlinePosition.setIcon(new android.graphics.drawable.BitmapDrawable(getResources(),createPositionIcon(prefs.getString("position_icon","Camion"))));offlinePosition.setAnchor(.5f,.5f);map.getOverlays().add(offlinePosition);}offlinePosition.setPosition(new GeoPoint(l.getLatitude(),l.getLongitude()));map.invalidate();}}
     private org.osmdroid.views.overlay.Marker offlinePosition;
     private void ensureLocation(){if(ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},LOCATION_PERMISSION);else if(tracker!=null&&visible)tracker.observe(this::syncTracking);}
     @Override public void onRequestPermissionsResult(int r,@NonNull String[] p,@NonNull int[] g){super.onRequestPermissionsResult(r,p,g);if(r==LOCATION_PERMISSION&&g.length>0&&g[0]==PackageManager.PERMISSION_GRANTED){ensureLocation();if(android.os.Build.VERSION.SDK_INT>=33)ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.POST_NOTIFICATIONS},43);}}
@@ -309,5 +299,4 @@ public class RoutixActivity extends AppCompatActivity implements LocationListene
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);if(modern!=null)modern.onSaveInstanceState(out);}
     @Override public void onLowMemory(){super.onLowMemory();if(modern!=null)modern.onLowMemory();if(map!=null)map.getTileProvider().clearTileCache();}
     @Override protected void onDestroy(){guidanceSession++;if(modern!=null)modern.onDestroy();if(map!=null)map.onDetach();super.onDestroy();}
-    @Override public void onProviderEnabled(@NonNull String provider){} @Override public void onProviderDisabled(@NonNull String provider){}
 }
