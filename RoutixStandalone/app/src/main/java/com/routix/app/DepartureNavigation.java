@@ -1,26 +1,89 @@
 package com.routix.app;
 
-import android.app.*;
-import android.content.*;
 import android.location.Location;
-import android.net.Uri;
-import org.json.*;
-import java.net.*;
-import java.io.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.osmdroid.util.GeoPoint;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
-/** Road-distance preview only; navigation is delegated to the selected app. */
+/** Lightweight in-app road route used only to reach the first point of a collection route. */
 final class DepartureNavigation {
-    static void open(Activity host,Location origin,RouteStore.Point target){
-        if(origin==null){choose(host,target,"Position GPS indisponible : l’application choisie calculera le trajet.");return;}
-        android.widget.Toast.makeText(host,"Calcul du trajet vers le départ…",android.widget.Toast.LENGTH_SHORT).show();
-        new Thread(()->{String message="Calcul indisponible. L’application choisie recalculera le trajet.";HttpURLConnection connection=null;
-            try{String url=String.format(Locale.US,"https://router.project-osrm.org/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=false",origin.getLongitude(),origin.getLatitude(),target.lon,target.lat);connection=(HttpURLConnection)new URL(url).openConnection();connection.setConnectTimeout(5000);connection.setReadTimeout(6000);connection.setRequestProperty("User-Agent","Routix/2.1");
-                try(BufferedReader reader=new BufferedReader(new InputStreamReader(connection.getInputStream()))){StringBuilder b=new StringBuilder();String l;while((l=reader.readLine())!=null&&b.length()<100000)b.append(l);JSONObject route=new JSONObject(b.toString()).getJSONArray("routes").getJSONObject(0);message=String.format(Locale.FRANCE,"Départ à %.1f km • environ %.0f min\nItinéraire voiture indicatif : vérifier les restrictions camion.",route.getDouble("distance")/1000,route.getDouble("duration")/60);}
-            }catch(Exception e){DiagnosticLog.error("departure routing",e);}finally{if(connection!=null)connection.disconnect();}
-            String result=message;host.runOnUiThread(()->{if(!host.isFinishing()&&!host.isDestroyed())choose(host,target,result);});
-        },"departure-preview").start();
+    interface Callback { void ready(Result result); }
+
+    static final class Result {
+        final List<GeoPoint> points;
+        final double distanceM,durationS;
+        final boolean roadRouted;
+        Result(List<GeoPoint> points,double distanceM,double durationS,boolean roadRouted){
+            this.points=points==null?Collections.emptyList():Collections.unmodifiableList(new ArrayList<>(points));
+            this.distanceM=distanceM;this.durationS=durationS;this.roadRouted=roadRouted;
+        }
+        boolean usable(){return points.size()>=2;}
     }
-    private static void choose(Activity host,RouteStore.Point point,String message){new AlertDialog.Builder(host).setTitle("Aller au départ").setMessage(message).setNegativeButton("Annuler",null).setNeutralButton("Waze",(d,w)->launch(host,point,true)).setPositiveButton("Google Maps",(d,w)->launch(host,point,false)).show();}
-    private static void launch(Activity host,RouteStore.Point p,boolean waze){String coords=String.format(Locale.US,"%.7f,%.7f",p.lat,p.lon);Intent i=new Intent(Intent.ACTION_VIEW,Uri.parse(waze?"waze://?ll="+coords+"&navigate=yes":"google.navigation:q="+coords+"&mode=d"));try{host.startActivity(i);}catch(ActivityNotFoundException e){String url=waze?"https://www.waze.com/ul?ll="+coords+"&navigate=yes":"https://www.google.com/maps/dir/?api=1&destination="+coords+"&travelmode=driving";try{host.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(ActivityNotFoundException absent){android.widget.Toast.makeText(host,"Installe Google Maps ou Waze pour naviguer.",android.widget.Toast.LENGTH_LONG).show();}}}
+
+    static void calculate(Location origin,RouteStore.Point target,Callback callback){
+        if(callback==null)return;
+        if(origin==null||target==null){callback.ready(new Result(Collections.emptyList(),0,0,false));return;}
+        new Thread(()->callback.ready(request(origin,target)),"routix-approach-route").start();
+    }
+
+    private static Result request(Location origin,RouteStore.Point target){
+        HttpURLConnection connection=null;
+        try{
+            String url=String.format(Locale.US,
+                    "https://router.project-osrm.org/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&steps=false",
+                    origin.getLongitude(),origin.getLatitude(),target.lon,target.lat);
+            connection=(HttpURLConnection)new URL(url).openConnection();
+            connection.setConnectTimeout(5500);connection.setReadTimeout(7000);
+            connection.setRequestProperty("User-Agent","Routix/2.1");
+            try(BufferedReader reader=new BufferedReader(new InputStreamReader(connection.getInputStream()))){
+                StringBuilder b=new StringBuilder();String line;
+                while((line=reader.readLine())!=null&&b.length()<2_000_000)b.append(line);
+                JSONObject route=new JSONObject(b.toString()).getJSONArray("routes").getJSONObject(0);
+                JSONArray coords=route.getJSONObject("geometry").getJSONArray("coordinates");
+                List<GeoPoint> points=new ArrayList<>(coords.length());
+                for(int i=0;i<coords.length();i++){
+                    JSONArray c=coords.getJSONArray(i);
+                    points.add(new GeoPoint(c.getDouble(1),c.getDouble(0)));
+                }
+                if(points.size()>=2)return new Result(points,route.optDouble("distance",0),route.optDouble("duration",0),true);
+            }
+        }catch(Exception e){DiagnosticLog.error("internal departure routing",e);}
+        finally{if(connection!=null)connection.disconnect();}
+        List<GeoPoint> direct=new ArrayList<>(2);
+        direct.add(new GeoPoint(origin.getLatitude(),origin.getLongitude()));
+        direct.add(new GeoPoint(target.lat,target.lon));
+        float[] d=new float[1];Location.distanceBetween(origin.getLatitude(),origin.getLongitude(),target.lat,target.lon,d);
+        return new Result(direct,d[0],0,false);
+    }
+
+    /** Find the closest remaining approach point without ever moving the route backwards. */
+    static int advanceIndex(List<GeoPoint> points,int from,Location fix){
+        if(points==null||points.isEmpty()||fix==null)return Math.max(0,from);
+        int start=Math.max(0,Math.min(from,points.size()-1));
+        int end=Math.min(points.size()-1,start+180);
+        int best=start;float bestDistance=Float.MAX_VALUE;
+        for(int i=start;i<=end;i++){
+            GeoPoint p=points.get(i);float[] d=new float[1];
+            Location.distanceBetween(fix.getLatitude(),fix.getLongitude(),p.getLatitude(),p.getLongitude(),d);
+            if(d[0]<bestDistance){bestDistance=d[0];best=i;}
+        }
+        return Math.max(start,best);
+    }
+
+    static List<GeoPoint> remaining(Result result,int from,Location fix){
+        if(result==null||!result.usable())return Collections.emptyList();
+        int index=advanceIndex(result.points,from,fix);
+        List<GeoPoint> out=new ArrayList<>(result.points.size()-index+1);
+        if(fix!=null)out.add(new GeoPoint(fix.getLatitude(),fix.getLongitude()));
+        for(int i=index;i<result.points.size();i++)out.add(result.points.get(i));
+        return out;
+    }
 }
