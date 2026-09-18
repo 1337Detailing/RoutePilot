@@ -32,6 +32,13 @@ final class RouteArchive {
         if(files!=null)for(File f:files)out.add(new Version(f,read(f)));
         out.sort((a,b)->Long.compare(b.time,a.time));return out;
     }
+    synchronized void rename(File oldRoute,File newRoute)throws Exception{
+        if(oldRoute==null||newRoute==null||oldRoute.getName().equals(newRoute.getName()))return;
+        File from=new File(root,oldRoute.getName()),to=new File(root,newRoute.getName());
+        if(!from.exists())return;
+        if(to.exists())throw new IOException("Historique cible déjà présent");
+        if(!from.renameTo(to))throw new IOException("Impossible de déplacer l’historique");
+    }
     byte[] content(Version v)throws Exception{return read(v.file).getString("gpx").getBytes(StandardCharsets.UTF_8);}
     private JSONObject read(File f)throws Exception{return new JSONObject(new String(Files.readAllBytes(f.toPath()),StandardCharsets.UTF_8));}
     static void atomic(File file,byte[] bytes)throws IOException{
