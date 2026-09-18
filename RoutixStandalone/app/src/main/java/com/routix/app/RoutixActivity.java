@@ -71,8 +71,9 @@ public class RoutixActivity extends AppCompatActivity {
     private SharedPreferences prefs; private RouteStore store; private WorkHoursStore hoursStore; private Location lastLocation;
     private ModernMapController modern; private TrackingService tracker; private boolean bound,visible,headingUp=true,offline; private Bundle mapState; private boolean recoveryOffered;
     private FrameLayout root; private MapView map; private View topBar,dock,recordSheet; private LinearLayout contentHost; private CompactSpeedometer headerSpeed; private ImageView mapLogo;
-    private Polyline remainingLine; private RouteArrowsOverlay routeArrows; private int systemTop,systemBottom; private String selectedTab="map"; private int accent=MAUVE;
+    private Polyline remainingLine,approachLine; private RouteArrowsOverlay routeArrows,approachArrows; private int systemTop,systemBottom; private String selectedTab="map"; private int accent=MAUVE;
     private boolean recording,paused,guiding,guidanceCameraFollow=true; private long recordingStarted,guidanceSession; private double recordedDistance;
+    private DepartureNavigation.Result approachRoute; private int approachIndex; private boolean approachingStart;
     private TextView recordMain,recordStatus,recordDistance,recordPoints,recordEvents,reverseButton,twoSidesButton,pauseButton,guideTitle,guideSubtitle,guideDistance,guideProgress;
     private GuidanceEngine guidance; private RouteStore.Summary guidingRoute;
 
@@ -90,6 +91,7 @@ public class RoutixActivity extends AppCompatActivity {
     private void buildMap(){
         map=new MapView(this);map.setUseDataConnection(false);map.setMultiTouchControls(true);map.setMinZoomLevel(3.0);map.setMaxZoomLevel(20.0);map.getController().setZoom(18.0);map.setHorizontalMapRepetitionEnabled(false);map.setVerticalMapRepetitionEnabled(false);map.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN&&guiding)guidanceCameraFollow=false;return false;});applyMapStyle();root.addView(map,new FrameLayout.LayoutParams(-1,-1));
 
+        approachLine=new Polyline();approachLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);approachLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);map.getOverlays().add(approachLine);approachArrows=new RouteArrowsOverlay();map.getOverlays().add(approachArrows);
         remainingLine=new Polyline();remainingLine.getOutlinePaint().setStrokeCap(Paint.Cap.ROUND);remainingLine.getOutlinePaint().setStrokeJoin(Paint.Join.ROUND);map.getOverlays().add(remainingLine);routeArrows=new RouteArrowsOverlay();map.getOverlays().add(routeArrows);
         mapLogo=new ImageView(this);mapLogo.setImageResource(R.drawable.routix_logo_v2);mapLogo.setScaleType(ImageView.ScaleType.CENTER_CROP);mapLogo.setPadding(dp(4),dp(4),dp(4),dp(4));mapLogo.setBackground(glass(SURFACE,18));mapLogo.setElevation(dp(10));root.addView(mapLogo,new FrameLayout.LayoutParams(dp(52),dp(52)));
     }
@@ -197,7 +199,7 @@ public class RoutixActivity extends AppCompatActivity {
         p.addView(stringChoiceRow("Fond de carte","map_appearance",new String[]{"light","dark"},new String[]{"Clair minimaliste","Sombre mauve"},"dark",this::applyMapStyle));
         p.addView(toggleRow("Nuit automatique","Carte sombre de 20 h à 7 h.","auto_night",false,this::applyMapStyle));
         p.addView(stringChoiceRow("Icône de position","position_icon",new String[]{"Camion","Voiture","Flèche","Point"},new String[]{"Camion","Voiture","Flèche","Point"},"Camion",()->{if(modern!=null){modern.onPause();modern.onStop();modern.onDestroy();modern=null;createModernMap();modern.onResume();}}));
-        p.addView(toggleRow("Proposer le trajet jusqu’au départ","Ouvrir Google Maps ou Waze avant la collecte.","guide_to_start",true,()->{}));
+        p.addView(toggleRow("Guidage interne jusqu’au départ","Calcule et affiche directement le trajet d’approche dans Routix.","guide_to_start",true,()->{}));
         p.addView(choiceRow("Tolérance hors tracé","offroute_m",new int[]{25,35,45,60,80},new String[]{"25 m","35 m","45 m","60 m","80 m"},45,()->{}));
         p.addView(toggleRow("Rappels vocaux des repères","Annonce à moins de 55 m pendant le guidage.","voice_markers",true,()->{}));
         p.addView(toggleRow("Garder l’écran allumé","Uniquement pendant une tournée active.","keep_screen",true,this::applyRuntimePrefs));
@@ -230,18 +232,38 @@ public class RoutixActivity extends AppCompatActivity {
 
     private void startGuidance(RouteStore.Summary s){
         if(s==null||s.points.size()<2||tracker==null||!tracker.ready){toast("Trace ou GPS indisponible");return;}
-        tracker.beginGuidance(s);guidanceCameraFollow=true;headingUp=true;if(modern!=null)modern.heading(true);showTab("map",true);drawRemaining(tracker.guidanceState);recenter();
-        if(lastLocation!=null&&prefs.getBoolean("guide_to_start",true)){RouteStore.Point first=s.points.get(0);float[] d=new float[1];Location.distanceBetween(lastLocation.getLatitude(),lastLocation.getLongitude(),first.lat,first.lon,d);if(d[0]>100)new AlertDialog.Builder(this).setTitle("Rejoindre le départ ?").setMessage("Le suivi de tournée reste actif pendant la navigation externe.").setNegativeButton("Rester ici",null).setPositiveButton("Aller au départ",(dialog,w)->DepartureNavigation.open(this,lastLocation,first)).show();}
+        tracker.beginGuidance(s);guidanceCameraFollow=true;headingUp=true;approachRoute=null;approachIndex=0;approachingStart=false;if(modern!=null)modern.heading(true);showTab("map",true);drawRemaining(tracker.guidanceState);recenter();
+        if(lastLocation!=null&&prefs.getBoolean("guide_to_start",true)){
+            RouteStore.Point first=s.points.get(0);float[] d=new float[1];Location.distanceBetween(lastLocation.getLatitude(),lastLocation.getLongitude(),first.lat,first.lon,d);
+            if(d[0]>85){approachingStart=true;if(guideTitle!=null)guideTitle.setText("Calcul du départ…");if(guideSubtitle!=null)guideSubtitle.setText("Routix prépare l’itinéraire interne");Location origin=new Location(lastLocation);
+                DepartureNavigation.calculate(origin,first,result->runOnUiThread(()->{if(isDestroyed()||!guiding||guidingRoute!=s)return;approachRoute=result;approachIndex=0;if(result!=null&&result.usable()){toast(result.roadRouted?"Trajet vers le départ prêt":"Réseau indisponible : direction directe");updateApproach(origin);}else{approachingStart=false;clearApproach();}}));
+            }
+        }
     }
-    private void updateRouteGuidance(Location l){if(!guiding||tracker==null)return;GuidanceEngine.State state=tracker.guidanceState;if(state==null){drawRemaining(null);return;}drawRemaining(state);
-        if(guideDistance!=null)guideDistance.setText(formatDistance(state.remainingM)+"\nRESTANT");if(guideProgress!=null)guideProgress.setText(state.progressPercent+" %\nPROGRESSION");
-        if(guideTitle!=null)guideTitle.setText(state.poorAccuracy?"GPS imprécis":state.finished?"Tournée terminée":state.offRoute?"Rejoins le tracé":"Suis les flèches");
-        if(guideSubtitle!=null)guideSubtitle.setText(state.poorAccuracy?"Progression conservée en attendant un GPS fiable":state.nextEvent!=null?state.nextEvent.label+" · "+formatDistance(state.distanceToNextEventM):"Le tracé parcouru disparaît derrière toi");followCamera(l);
+    private void updateRouteGuidance(Location l){if(!guiding||tracker==null)return;GuidanceEngine.State state=tracker.guidanceState;if(state==null){drawRemaining(null);return;}
+        if(approachingStart&&l!=null&&guidingRoute!=null){RouteStore.Point first=guidingRoute.points.get(0);float[] toStart=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,toStart);
+            if(toStart[0]<=45){approachingStart=false;clearApproach();toast("Départ atteint • guidage de tournée");}
+            else updateApproach(l);
+        }
+        drawRemaining(state);
+        if(approachingStart){
+            if(guideDistance!=null)guideDistance.setText(formatDistance(distanceToApproachEnd(l))+"\nDÉPART");if(guideProgress!=null)guideProgress.setText("→\nAPPROCHE");
+            if(guideTitle!=null)guideTitle.setText("Rejoins le départ");if(guideSubtitle!=null)guideSubtitle.setText("Suis le tracé vert • il disparaît derrière toi");
+        }else{
+            if(guideDistance!=null)guideDistance.setText(formatDistance(state.remainingM)+"\nRESTANT");if(guideProgress!=null)guideProgress.setText(state.progressPercent+" %\nPROGRESSION");
+            if(guideTitle!=null)guideTitle.setText(state.poorAccuracy?"GPS imprécis":state.finished?"Tournée terminée":state.offRoute?"Rejoins le tracé":"Suis les flèches");
+            if(guideSubtitle!=null)guideSubtitle.setText(state.poorAccuracy?"Progression conservée en attendant un GPS fiable":state.nextEvent!=null?state.nextEvent.label+" · "+formatDistance(state.distanceToNextEventM):"Bleu = à parcourir • le passé disparaît");
+        }
+        followCamera(l);
     }
     private void drawRemaining(GuidanceEngine.State state){if(!guiding||guidingRoute==null||!"map".equals(selectedTab))return;boolean erase=prefs.getBoolean("erase_passed",true);int start=!erase||state==null?0:Math.max(0,Math.min(guidingRoute.points.size()-2,state.nearestIndex));int from=start+(erase&&state!=null?1:0);List<GeoPoint> pts=new ArrayList<>();if(state!=null&&erase&&Double.isFinite(state.position.lat)&&Double.isFinite(state.position.lon))pts.add(new GeoPoint(state.position.lat,state.position.lon));int available=Math.max(0,guidingRoute.points.size()-from),slots=Math.max(2,MAX_DISPLAY_ROUTE_POINTS-pts.size()),stride=Math.max(1,(int)Math.ceil(available/(double)slots));for(int i=from;i<guidingRoute.points.size();i+=stride){RouteStore.Point p=guidingRoute.points.get(i);pts.add(new GeoPoint(p.lat,p.lon));}if(from<guidingRoute.points.size()){RouteStore.Point last=guidingRoute.points.get(guidingRoute.points.size()-1);if(pts.isEmpty()||pts.get(pts.size()-1).getLatitude()!=last.lat||pts.get(pts.size()-1).getLongitude()!=last.lon)pts.add(new GeoPoint(last.lat,last.lon));}if(modern!=null){modern.setRoute(pts);modern.setEvents(guidingRoute.events);}remainingLine.setPoints(offline?pts:Collections.emptyList());remainingLine.getOutlinePaint().setColor(routeColor());remainingLine.getOutlinePaint().setStrokeWidth(dp(prefs.getInt("route_width",10)));if(offline&&prefs.getBoolean("route_arrows",true))routeArrows.setPoints(pts);else routeArrows.setPoints(new ArrayList<>());map.invalidate();}
+    private void updateApproach(Location l){if(!approachingStart||approachRoute==null||!approachRoute.usable())return;approachIndex=DepartureNavigation.advanceIndex(approachRoute.points,approachIndex,l);List<GeoPoint> pts=DepartureNavigation.remaining(approachRoute,approachIndex,l);
+        if(modern!=null)modern.setApproach(pts);approachLine.setPoints(offline?pts:Collections.emptyList());approachLine.getOutlinePaint().setColor(TEAL);approachLine.getOutlinePaint().setStrokeWidth(dp(8));if(offline)approachArrows.setPoints(pts);else approachArrows.setPoints(Collections.emptyList());map.invalidate();}
+    private double distanceToApproachEnd(Location l){if(l==null||guidingRoute==null||guidingRoute.points.isEmpty())return 0;RouteStore.Point first=guidingRoute.points.get(0);float[] d=new float[1];Location.distanceBetween(l.getLatitude(),l.getLongitude(),first.lat,first.lon,d);return d[0];}
+    private void clearApproach(){approachRoute=null;approachIndex=0;approachLine.setPoints(Collections.emptyList());approachArrows.setPoints(Collections.emptyList());if(modern!=null)modern.setApproach(Collections.emptyList());map.invalidate();}
     private void redrawGuidance(){if(tracker!=null)drawRemaining(tracker.guidanceState);}
     private void resumeGuidanceHere(){if(tracker==null||!tracker.reposition()){toast("Rapproche-toi du tracé avec un GPS précis");return;}guidanceCameraFollow=true;recenter();toast("Progression reprise au point le plus proche");}
-    private void stopGuidance(){if(tracker!=null)tracker.stopGuidance();remainingLine.setPoints(new ArrayList<>());routeArrows.setPoints(new ArrayList<>());if(modern!=null){modern.setRoute(new ArrayList<>());modern.setEvents(Collections.emptyList());}showTab("map",true);}
+    private void stopGuidance(){approachingStart=false;clearApproach();if(tracker!=null)tracker.stopGuidance();remainingLine.setPoints(new ArrayList<>());routeArrows.setPoints(new ArrayList<>());if(modern!=null){modern.setRoute(new ArrayList<>());modern.setEvents(Collections.emptyList());}showTab("map",true);}
     private void followCamera(Location l){if(l==null)return;if(modern!=null)modern.update(l,guiding);if(offline&&guidanceCameraFollow){map.getController().animateTo(new GeoPoint(l.getLatitude(),l.getLongitude()));if(headingUp&&l.hasBearing()&&l.getSpeed()>.9f)map.setMapOrientation((float)MapStyles.smoothBearing(map.getMapOrientation(),360-l.getBearing()));}}
     public void onLocationChanged(@NonNull Location l){lastLocation=l;if(headerSpeed!=null)headerSpeed.update(l);if(guiding)updateRouteGuidance(l);else if(modern!=null)modern.update(l,false);if(offline){if(offlinePosition==null){offlinePosition=new org.osmdroid.views.overlay.Marker(map);offlinePosition.setIcon(new android.graphics.drawable.BitmapDrawable(getResources(),createPositionIcon(prefs.getString("position_icon","Camion"))));offlinePosition.setAnchor(.5f,.5f);map.getOverlays().add(offlinePosition);}offlinePosition.setPosition(new GeoPoint(l.getLatitude(),l.getLongitude()));map.invalidate();}}
     private org.osmdroid.views.overlay.Marker offlinePosition;
