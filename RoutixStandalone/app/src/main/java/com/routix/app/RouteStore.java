@@ -72,7 +72,32 @@ final class RouteStore {
 
     File originalFor(File f){if(f==null)return null;String p=prefs.getString("original_"+f.getName(),null);if(p==null)return null;File o=new File(p);return o.exists()?o:null;}
     String displayName(File f){if(f==null)return "Tournée";String n=prefs.getString("route_name_"+f.getName(),null);if(n!=null&&!n.trim().isEmpty())return n;return f.getName().replace("Routix_","Tournée ").replace("Import_","Import ").replace(".gpx","").replace('_',' ');}
-    void rename(File f,String name){if(f==null||name==null||name.trim().isEmpty())return;try{archive.capture(f,displayName(f),"Avant renommage");}catch(Exception ex){return;}prefs.edit().putString("route_name_"+f.getName(),name.trim()).apply();backup.publish(f);}
+    File rename(File f,String name){
+        if(f==null||!f.exists()||name==null||name.trim().isEmpty())return null;
+        String clean=name.trim();String safe=clean.replaceAll("[\\\\/:*?\"<>|]"," ").replaceAll("\\s+"," ").trim();
+        if(safe.isEmpty())safe="Tournee";
+        String oldName=f.getName();File target=new File(routesDir(),safe+".gpx");int n=2;
+        while(target.exists()&&!target.equals(f))target=new File(routesDir(),safe+"_"+(n++)+".gpx");
+        try{archive.capture(f,displayName(f),"Avant renommage");}catch(Exception ex){DiagnosticLog.error("rename archive",ex);}
+        if(!target.equals(f)&&!f.renameTo(target)){DiagnosticLog.info("route rename failed: "+oldName+" -> "+target.getName());return null;}
+        if(target.equals(f))target=f;
+        SharedPreferences.Editor e=prefs.edit();
+        migratePref(e,"favorite_",oldName,target.getName());
+        migratePref(e,"original_",oldName,target.getName());
+        migratePref(e,"import_input_",oldName,target.getName());migratePref(e,"import_output_",oldName,target.getName());
+        migratePref(e,"import_invalid_",oldName,target.getName());migratePref(e,"import_duplicates_",oldName,target.getName());
+        migratePref(e,"import_simplified_",oldName,target.getName());migratePref(e,"import_matched_",oldName,target.getName());
+        migratePref(e,"import_confidence_",oldName,target.getName());migratePref(e,"import_generated_steps_",oldName,target.getName());
+        e.remove("route_name_"+oldName).putString("route_name_"+target.getName(),clean).remove("deleted_route_"+target.getName()).apply();
+        if(!oldName.equals(target.getName()))backup.delete(oldName);backup.publish(target);return target;
+    }
+    private void migratePref(SharedPreferences.Editor e,String prefix,String oldName,String newName){
+        String oldKey=prefix+oldName,newKey=prefix+newName;
+        if(prefix.equals("favorite_")||prefix.equals("import_matched_")){if(prefs.contains(oldKey))e.putBoolean(newKey,prefs.getBoolean(oldKey,false));}
+        else if(prefix.startsWith("import_")){if(prefs.contains(oldKey))e.putInt(newKey,prefs.getInt(oldKey,0));}
+        else {if(prefs.contains(oldKey))e.putString(newKey,prefs.getString(oldKey,null));}
+        if(!oldKey.equals(newKey))e.remove(oldKey);
+    }
     boolean restore(File route,RouteArchive.Version v){try{byte[] c=archive.content(v);File check=new File(context.getCacheDir(),"restore-check.gpx");RouteArchive.atomic(check,c);if(parse(check).points.size()<2){check.delete();return false;}check.delete();archive.capture(route,displayName(route),"Avant restauration");RouteArchive.atomic(route,c);prefs.edit().putString("route_name_"+route.getName(),v.name).apply();backup.publish(route);return true;}catch(Exception ex){return false;}}
     boolean delete(File f){if(f==null)return false;context.getSharedPreferences("routix",0).edit().putBoolean("deleted_route_"+f.getName(),true).apply();File o=originalFor(f);if(o!=null)o.delete();prefs.edit().remove("route_name_"+f.getName()).remove("favorite_"+f.getName()).remove("original_"+f.getName()).apply();backup.delete(f.getName());return f.delete();}
     File duplicate(File f){if(f==null||!f.exists())return null;String base=f.getName().replace(".gpx","");File out=new File(routesDir(),base+"_copie.gpx");int i=2;while(out.exists())out=new File(routesDir(),base+"_copie_"+(i++)+".gpx");try(FileInputStream in=new FileInputStream(f);FileOutputStream os=new FileOutputStream(out)){byte[] b=new byte[8192];int n;while((n=in.read(b))>0)os.write(b,0,n);prefs.edit().putString("route_name_"+out.getName(),displayName(f)+" • copie").apply();backup.publish(out);return out;}catch(Exception ex){return null;}}
