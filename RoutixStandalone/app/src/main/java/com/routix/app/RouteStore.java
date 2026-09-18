@@ -80,7 +80,7 @@ final class RouteStore {
         while(target.exists()&&!target.equals(f))target=new File(routesDir(),safe+"_"+(n++)+".gpx");
         try{archive.capture(f,displayName(f),"Avant renommage");}catch(Exception ex){DiagnosticLog.error("rename archive",ex);}
         if(!target.equals(f)&&!f.renameTo(target)){DiagnosticLog.info("route rename failed: "+oldName+" -> "+target.getName());return null;}
-        if(target.equals(f))target=f;
+        if(target.equals(f))target=f;else try{archive.rename(f,target);}catch(Exception ex){DiagnosticLog.error("rename history",ex);}
         SharedPreferences.Editor e=prefs.edit();
         migratePref(e,"favorite_",oldName,target.getName());
         migratePref(e,"original_",oldName,target.getName());
