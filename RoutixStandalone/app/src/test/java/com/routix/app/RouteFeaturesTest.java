@@ -18,9 +18,10 @@ public class RouteFeaturesTest {
     private SharedPreferences prefs(){return context.getSharedPreferences("feature-"+UUID.randomUUID(),0);}
     private List<RouteStore.Point> points(){return Arrays.asList(new RouteStore.Point(48,7,1000,5),new RouteStore.Point(48.005,7,2000,5),new RouteStore.Point(48.01,7,3000,5));}
     @Test public void restorationPreservesPreviousNameGeometryAndAnUndoVersion()throws Exception{
-        RouteStore store=new RouteStore(context,prefs());File f=store.createRoute(points(),Collections.emptyList(),1000);assertNotNull(f);String original=store.displayName(f);store.rename(f,"Nouvelle tournée");
-        RouteArchive.Version version=store.archive.versions(f).get(0);assertTrue(store.restore(f,version));assertEquals(original,store.displayName(f));assertEquals(3,store.parse(f).points.size());
-        boolean undo=false;for(RouteArchive.Version v:store.archive.versions(f))if(v.name.equals("Nouvelle tournée"))undo=true;assertTrue(undo);
+        RouteStore store=new RouteStore(context,prefs());File f=store.createRoute(points(),Collections.emptyList(),1000);assertNotNull(f);String original=store.displayName(f);File renamed=store.rename(f,"Nouvelle tournée");
+        assertNotNull(renamed);assertEquals("Nouvelle tournée.gpx",renamed.getName());assertFalse(f.exists());
+        RouteArchive.Version version=store.archive.versions(renamed).get(0);assertTrue(store.restore(renamed,version));assertEquals(original,store.displayName(renamed));assertEquals(3,store.parse(renamed).points.size());
+        boolean undo=false;for(RouteArchive.Version v:store.archive.versions(renamed))if(v.name.equals("Nouvelle tournée"))undo=true;assertTrue(undo);
     }
     @Test public void overwritingATraceAutomaticallyArchivesItsPreviousGeometry()throws Exception{
         RouteStore store=new RouteStore(context,prefs());File f=store.createRoute(points(),Collections.emptyList(),2000);assertTrue(store.writeGpx(f,points().subList(0,2),Collections.emptyList(),2000,"Modifiée"));assertEquals(2,store.parse(f).points.size());assertTrue(store.restore(f,store.archive.versions(f).get(0)));assertEquals(3,store.parse(f).points.size());
