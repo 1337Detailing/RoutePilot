@@ -39,10 +39,12 @@ final class DepartureNavigation {
 
     static boolean isFreshFix(Location fix){
         if(fix==null||!RouteStore.validCoordinates(fix.getLatitude(),fix.getLongitude())||!fix.hasAccuracy()||fix.getAccuracy()>80)return false;
-        long elapsed=fix.getElapsedRealtimeNanos();
-        if(elapsed<=0)return false;
-        long ageMs=(SystemClock.elapsedRealtimeNanos()-elapsed)/1_000_000L;
-        return ageMs>=0&&ageMs<=MAX_FIX_AGE_MS;
+        long elapsed=fix.getElapsedRealtimeNanos(),nowElapsed=SystemClock.elapsedRealtimeNanos();
+        long ageMs;
+        if(elapsed>0&&nowElapsed>=elapsed)ageMs=(nowElapsed-elapsed)/1_000_000L;
+        else if(fix.getTime()>0)ageMs=Math.max(0,System.currentTimeMillis()-fix.getTime());
+        else return false;
+        return ageMs<=MAX_FIX_AGE_MS;
     }
 
     static float distanceTo(Location origin,RouteStore.Point target){
