@@ -11,8 +11,8 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class) @Config(sdk=35)
 public class DepartureNavigationTest {
     private Location fix(double lat,double lon,long ageMs){
-        Location l=new Location("gps");l.setLatitude(lat);l.setLongitude(lon);l.setAccuracy(8);
-        l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos()-ageMs*1_000_000L);return l;
+        Location l=new Location("gps");l.setLatitude(lat);l.setLongitude(lon);l.setAccuracy(8);l.setTime(System.currentTimeMillis()-ageMs);
+        long now=SystemClock.elapsedRealtimeNanos();if(now>ageMs*1_000_000L)l.setElapsedRealtimeNanos(now-ageMs*1_000_000L);return l;
     }
     @Test public void staleFixCannotStartDepartureGuidance(){
         assertFalse(DepartureNavigation.isFreshFix(fix(48.75,7.95,DepartureNavigation.MAX_FIX_AGE_MS+1000)));
