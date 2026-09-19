@@ -31,6 +31,13 @@ final class GuidanceEngine {
             finished=done;alongRouteM=along;this.position=position;poorAccuracy=poor;
         }
     }
+    static final class Maneuver {
+        final float distanceM;
+        final String instruction;
+        final int direction; // -1 left, 0 straight, 1 right, 2 u-turn
+        Maneuver(float distanceM,String instruction,int direction){this.distanceM=distanceM;this.instruction=instruction;this.direction=direction;}
+    }
+
     private static final class Match {
         final float along,distance;
         Match(float along,float distance){this.along=along;this.distance=distance;}
@@ -104,6 +111,20 @@ final class GuidanceEngine {
         boolean done=!poor&&!off&&remaining<6&&distance(fix,points.get(points.size()-1))<20;
         return new State(index,Math.min(points.size()-1,target),Math.min(100,(int)(progress*100/totalDistanceM())),
                 m.distance,remaining,nextDistance,next,off,done,progress,pointAt(progress),poor||stale);
+    }
+
+    Maneuver nextManeuver(State s){
+        if(s==null||points.size()<3)return new Maneuver(Math.max(0,s==null?0:s.remainingM),"Continuez tout droit",0);
+        float from=Math.max(0,s.alongRouteM);int start=Math.max(1,segmentAt(from)+1);
+        for(int i=start;i<points.size()-1;i++){
+            float ahead=cumulative[i]-from;if(ahead<12)continue;if(ahead>850)break;
+            float in=bearing(points.get(i-1),points.get(i)),out=bearing(points.get(i),points.get(i+1));
+            float delta=angleDelta(out,in),abs=Math.abs(delta);
+            if(abs<28)continue;
+            if(abs>150)return new Maneuver(ahead,"Faites demi-tour",2);
+            return new Maneuver(ahead,delta>0?"Tournez à droite":"Tournez à gauche",delta>0?1:-1);
+        }
+        return new Maneuver(Math.min(Math.max(0,s.remainingM),350),"Continuez tout droit",0);
     }
 
     Point targetPoint(State s){return pointAt(Math.min(totalDistanceM(),s.alongRouteM+38));}
