@@ -22,7 +22,7 @@ final class RouteArrowsOverlay extends Overlay {
     @Override public void draw(Canvas canvas,MapView map,boolean shadow){
         if(shadow||points.size()<2)return;
         float density=map.getResources().getDisplayMetrics().density;
-        double spacing=48*density,next=24*density;
+        double spacing=42*density,next=20*density;
         Point a=new Point(),b=new Point();map.getProjection().toPixels(points.get(0),a);
         paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
         Path arrow=new Path();android.graphics.Rect clip=canvas.getClipBounds();
@@ -44,11 +44,11 @@ final class RouteArrowsOverlay extends Overlay {
                                 if(Math.hypot(x-old[0],y-old[1])<spacing*1.1&&ux*old[2]+uy*old[3]<.5)laterVisit=true;
                         if(laterVisit){next+=spacing;continue;}
                         directions.computeIfAbsent(gx+":"+gy,k->new ArrayList<>()).add(new double[]{x,y,ux,uy});
-                        float back=9*density,wing=6*density;arrow.reset();
+                        float back=12*density,wing=8*density;arrow.reset();
                         arrow.moveTo(x-(float)ux*back-(float)uy*wing,y-(float)uy*back+(float)ux*wing);
                         arrow.lineTo(x,y);arrow.lineTo(x-(float)ux*back+(float)uy*wing,y-(float)uy*back-(float)ux*wing);
-                        paint.setColor(Color.rgb(0,55,125));paint.setStrokeWidth(6*density);canvas.drawPath(arrow,paint);
-                        paint.setColor(Color.WHITE);paint.setStrokeWidth(3*density);canvas.drawPath(arrow,paint);
+                        paint.setColor(Color.rgb(5,12,25));paint.setStrokeWidth(8*density);canvas.drawPath(arrow,paint);
+                        paint.setColor(Color.WHITE);paint.setStrokeWidth(4*density);canvas.drawPath(arrow,paint);
                     }
                     next+=spacing;
                 }
