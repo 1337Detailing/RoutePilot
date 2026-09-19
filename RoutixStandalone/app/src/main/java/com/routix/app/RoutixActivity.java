@@ -306,7 +306,7 @@ public class RoutixActivity extends AppCompatActivity {
     private void showFinishSummary(){
         if(tracker==null||guidingRoute==null||isFinishing())return;
         long end=System.currentTimeMillis(),start=tracker.guidanceStartedAt>0?tracker.guidanceStartedAt:end;long duration=Math.max(0,end-start);
-        double travelled=tracker.guidanceTravelDistance;int reverse=tracker.guidanceReverseAdded,two=tracker.guidanceTwoSidesAdded;
+        double travelled=tracker.guidanceTravelDistance;int reverse=0,two=0;for(RouteStore.Event e:guidingRoute.events){if("REVERSE".equals(e.type))reverse++;else if("TWO_SIDES".equals(e.type))two++;}
         LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(20),dp(20),dp(20),dp(12));panel.setBackground(glass(SURFACE,28));
         panel.addView(text("✓  Tournée terminée",27,Typeface.BOLD,TEXT));TextView sub=text(formatClock(start)+" → "+formatClock(end),12,Typeface.NORMAL,MUTED);sub.setPadding(0,dp(4),0,dp(14));panel.addView(sub);
         RoutePreviewView preview=new RoutePreviewView(this);preview.setPoints(guidingRoute.points);panel.addView(preview,new LinearLayout.LayoutParams(-1,dp(135)));
