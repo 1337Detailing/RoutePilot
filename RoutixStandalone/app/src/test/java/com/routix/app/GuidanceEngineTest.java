@@ -79,6 +79,18 @@ public class GuidanceEngineTest {
         assertFalse(e.reposition(Double.NaN,here.lon));
         assertEquals(800,fix(e,800,0,3000).remainingM,3);
     }
+    @Test public void nextManeuverFindsRightAndLeftTurnsAhead(){
+        GuidanceEngine right=engine(p(0,0),p(100,0),p(100,-100));
+        GuidanceEngine.State rs=fix(right,0,0,1000);
+        GuidanceEngine.Maneuver rm=right.nextManeuver(rs);
+        assertEquals(1,rm.direction);assertTrue(rm.distanceM>90&&rm.distanceM<110);
+
+        GuidanceEngine left=engine(p(0,0),p(100,0),p(100,100));
+        GuidanceEngine.State ls=fix(left,0,0,1000);
+        GuidanceEngine.Maneuver lm=left.nextManeuver(ls);
+        assertEquals(-1,lm.direction);assertTrue(lm.distanceM>90&&lm.distanceM<110);
+    }
+
     @Test public void oneHourReplayAndRepeatedProcessRecoveryKeepSameProgress(){
         GuidanceEngine continuous=engine(p(0,0),p(12000,0)),restored=engine(p(0,0),p(12000,0));
         for(int second=0;second<=3600;second++){
