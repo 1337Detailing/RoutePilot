@@ -31,7 +31,7 @@ final class RouteFolderStore {
         boolean found=false;for(String x:new ArrayList<>(set))if(x.equalsIgnoreCase(old)){set.remove(x);found=true;break;}
         if(!found)return false;
         for(String x:set)if(x.equalsIgnoreCase(n))return false;
-        SharedPreferences.Editor e=prefs.edit().putStringSet(KEY_FOLDERS,new HashSet<>(set){{add(n);}});
+        Set<String> renamedSet=new HashSet<>(set);renamedSet.add(n);SharedPreferences.Editor e=prefs.edit().putStringSet(KEY_FOLDERS,renamedSet);
         for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){
             if(entry.getKey().startsWith("route_folder_")&&old.equalsIgnoreCase(String.valueOf(entry.getValue())))e.putString(entry.getKey(),n);
         }
@@ -40,7 +40,7 @@ final class RouteFolderStore {
 
     void delete(String name){
         String n=clean(name);Set<String> set=new HashSet<>(prefs.getStringSet(KEY_FOLDERS,Collections.emptySet()));
-        set.removeIf(x->x.equalsIgnoreCase(n));SharedPreferences.Editor e=prefs.edit().putStringSet(KEY_FOLDERS,set);
+        String remove=null;for(String x:set)if(x.equalsIgnoreCase(n)){remove=x;break;}if(remove!=null)set.remove(remove);SharedPreferences.Editor e=prefs.edit().putStringSet(KEY_FOLDERS,set);
         for(Map.Entry<String,?> entry:prefs.getAll().entrySet())if(entry.getKey().startsWith("route_folder_")&&n.equalsIgnoreCase(String.valueOf(entry.getValue())))e.remove(entry.getKey());
         e.remove("route_folder_open_"+n).apply();
     }
