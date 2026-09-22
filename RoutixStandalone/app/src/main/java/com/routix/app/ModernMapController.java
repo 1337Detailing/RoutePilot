@@ -63,7 +63,7 @@ final class ModernMapController {
             s.addLayer(new LineLayer("approach-line","approach").withProperties(lineColor("#94e2d5"),lineWidth(8f),lineJoin("round"),lineCap("round")));
             s.addLayer(new SymbolLayer("approach-arrows-layer","approach-arrows").withProperties(symbolPlacement("line"),symbolSpacing(50f),iconImage("direction"),iconSize(.96f),iconAllowOverlap(false),iconKeepUpright(false),iconRotationAlignment("map"),iconOpacity(1f)));
             s.addLayer(new SymbolLayer("user","position").withProperties(iconImage("truck"),iconAllowOverlap(true),iconIgnorePlacement(true),iconSize(.80f)));
-            s.addLayer(new CircleLayer("marker-dots","events").withProperties(circleColor("#fab387"),circleRadius(6f),circleStrokeColor("#181825"),circleStrokeWidth(2f)));
+            s.addLayer(new CircleLayer("marker-dots","events").withProperties(circleColor(String.format(Locale.US,"#%06X",(0xFFFFFF&prefs.getInt("marker_color",0xfffab387)))),circleRadius(6f),circleStrokeColor("#181825"),circleStrokeWidth(2f)));
             s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(MapStyles.dark(prefs)?"#f5f3ff":"#312d40"),textHaloColor(MapStyles.dark(prefs)?"#181825":"#ffffff"),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f})));
             renderRoute();renderApproach();renderEvents();update(location,false,Float.MAX_VALUE);
         });
@@ -110,7 +110,13 @@ final class ModernMapController {
     private double zoomFor(float meters){if(!Float.isFinite(meters))return 17.2;if(meters<55)return 18.45;if(meters<140)return 18.0;if(meters<320)return 17.55;if(meters<700)return 17.1;return 16.75;}
 
     void recenter(Location l,boolean guiding){follow=true;lastCameraMs=0;update(l,guiding,actionDistance);}
-    void heading(boolean enabled){heading=enabled;follow=true;if(map!=null&&!enabled)map.easeCamera(CameraUpdateFactory.bearingTo(0),350);}
+    void heading(boolean enabled){
+        heading=enabled;follow=true;lastCameraMs=0;
+        if(map==null)return;
+        double target=enabled&&bearingReady?bearing:0;
+        map.easeCamera(CameraUpdateFactory.bearingTo(target),320);
+        if(location!=null)update(location,guidingMode,actionDistance);
+    }
     void setVisible(boolean enabled){visible=enabled;view.setVisibility(enabled?View.VISIBLE:View.GONE);if(enabled){renderRoute();renderApproach();renderEvents();}}
     void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
     void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
