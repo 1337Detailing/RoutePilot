@@ -10,13 +10,13 @@ public class GuidanceEngineTest {
     private GuidanceEngine.State fix(GuidanceEngine e,double east,double north,long t){GuidanceEngine.Point p=p(east,north);return e.update(p.lat,p.lon,t,5);}
     @Test public void sparseSegmentProgressIsContinuousNotRoundedToNextPoint(){
         GuidanceEngine e=engine(p(0,0),p(1000,0));fix(e,0,0,1000);
-        GuidanceEngine.State a=fix(e,100,0,2000),b=fix(e,130,0,3000);
+        GuidanceEngine.State a=fix(e,100,0,3000),b=fix(e,130,0,4000);
         assertEquals(900,a.remainingM,3);assertEquals(870,b.remainingM,3);assertFalse(b.finished);assertEquals(0,b.nearestIndex);assertEquals(p(130,0).lon,b.position.lon,.000001);
     }
     @Test public void closedLoopDoesNotFinishAtStartOrJumpToLastVisit(){
         GuidanceEngine e=engine(p(0,0),p(100,0),p(100,100),p(0,100),p(0,0));
         GuidanceEngine.State s=fix(e,0,0,1000);assertFalse(s.finished);assertTrue(s.remainingM>390);
-        fix(e,60,0,2000);fix(e,100,0,3000);s=fix(e,100,50,4000);assertEquals(250,s.remainingM,3);
+        fix(e,60,0,3000);fix(e,100,0,4000);s=fix(e,100,50,5000);assertEquals(250,s.remainingM,3);
     }
     @Test public void outAndBackDoesNotEraseReturnBeforeTurnaround(){
         GuidanceEngine e=engine(p(0,0),p(100,0),p(0,0));fix(e,0,0,1000);
@@ -34,7 +34,7 @@ public class GuidanceEngineTest {
         GuidanceEngine.Point q=p(1000,0);assertTrue(e.reposition(q.lat,q.lon));assertEquals(1000,fix(e,1000,0,3000).remainingM,3);
     }
     @Test public void reverseDirectionUsesSameContinuousDistance(){
-        GuidanceEngine e=engine(p(1000,0),p(0,0));fix(e,1000,0,1000);assertEquals(900,fix(e,900,0,2000).remainingM,3);
+        GuidanceEngine e=engine(p(1000,0),p(0,0));fix(e,1000,0,1000);assertEquals(900,fix(e,900,0,3000).remainingM,3);
     }
     @Test public void duplicatePointsAndOldFixesCannotBreakProgress(){
         GuidanceEngine e=engine(p(0,0),p(0,0),p(100,0));fix(e,0,0,1000);GuidanceEngine.State a=fix(e,40,0,3000),old=fix(e,90,0,2000);assertEquals(a.remainingM,old.remainingM,.01);assertFalse(Float.isNaN(old.remainingM));
@@ -58,26 +58,26 @@ public class GuidanceEngineTest {
     }
     @Test public void resumeAtLoopArrivalDoesNotRestoreWholeRoute(){
         GuidanceEngine e=engine(p(0,0),p(100,0),p(100,100),p(0,100),p(0,0));
-        fix(e,0,0,1000);fix(e,100,0,2000);fix(e,100,100,3000);fix(e,0,100,4000);
-        assertTrue(fix(e,0,0,5000).finished);
+        fix(e,0,0,1000);fix(e,100,0,3000);fix(e,100,100,5000);fix(e,0,100,7000);
+        assertTrue(fix(e,0,0,9000).finished);
         GuidanceEngine.Point here=p(0,0);assertTrue(e.reposition(here.lat,here.lon));
-        GuidanceEngine.State after=fix(e,0,0,6000);
+        GuidanceEngine.State after=fix(e,0,0,10000);
         assertTrue(after.finished);assertEquals(0,after.remainingM,.1);
     }
     @Test public void resumeBehindProgressCannotBringBackTravelledTrace(){
         GuidanceEngine e=engine(p(0,0),p(1000,0));fix(e,0,0,1000);
-        GuidanceEngine.State before=fix(e,100,0,2000);
+        GuidanceEngine.State before=fix(e,100,0,3000);
         GuidanceEngine.Point slightlyBehind=p(90,0);assertTrue(e.reposition(slightlyBehind.lat,slightlyBehind.lon));
-        GuidanceEngine.State after=fix(e,90,0,3000);assertEquals(before.remainingM,after.remainingM,.1);
+        GuidanceEngine.State after=fix(e,90,0,4000);assertEquals(before.remainingM,after.remainingM,.1);
         GuidanceEngine.Point farBehind=p(0,0);assertFalse(e.reposition(farBehind.lat,farBehind.lon));
-        assertEquals(before.remainingM,fix(e,100,0,4000).remainingM,.1);
+        assertEquals(before.remainingM,fix(e,100,0,5000).remainingM,.1);
     }
     @Test public void repeatedResumeAndInvalidFixDoNotResetProgress(){
-        GuidanceEngine e=engine(p(1000,0),p(0,0));fix(e,1000,0,1000);fix(e,800,0,2000);
+        GuidanceEngine e=engine(p(1000,0),p(0,0));fix(e,1000,0,1000);fix(e,800,0,5000);
         GuidanceEngine.Point here=p(800,0);
         for(int i=0;i<3;i++)assertTrue(e.reposition(here.lat,here.lon));
         assertFalse(e.reposition(Double.NaN,here.lon));
-        assertEquals(800,fix(e,800,0,3000).remainingM,3);
+        assertEquals(800,fix(e,800,0,6000).remainingM,3);
     }
     @Test public void nextManeuverFindsRightAndLeftTurnsAhead(){
         GuidanceEngine right=engine(p(0,0),p(100,0),p(100,-100));
