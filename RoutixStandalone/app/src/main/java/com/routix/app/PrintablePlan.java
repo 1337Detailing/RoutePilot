@@ -40,20 +40,20 @@ final class PrintablePlan {
 
     static void open(Activity a,RouteStore.Summary r,String title){
         if(r.points.size()<2){Toast.makeText(a,"Pas assez de points GPS",Toast.LENGTH_LONG).show();return;}
-        new AlertDialog.Builder(a).setTitle("Plan imprimable Routix")
+        new RoutixDialogs.Builder(a).setTitle("Plan imprimable Routix")
             .setMessage("Créer des images A4 et un PDF avec les rues numérotées, dans l’ordre de la tournée.\n\nPour trouver les noms, la zone géographique du parcours est envoyée au service OpenStreetMap Overpass. Connexion nécessaire lors de la première génération. Les fichiers restent sur ce téléphone jusqu’au partage.")
             .setNegativeButton("Annuler",null).setPositiveButton("Générer le plan",(d,w)->new PrintablePlan(a,r,title).start()).show();
     }
     private boolean active(){return !cancelled.get()&&!activity.isFinishing()&&!activity.isDestroyed();}
     private void check() throws IOException {if(!active())throw new IOException("Génération annulée");}
     private void start(){
-        progress=new AlertDialog.Builder(activity).setTitle("Création du plan…")
+        progress=new RoutixDialogs.Builder(activity).setTitle("Création du plan…")
             .setMessage("Récupération des rues puis création des pages A4.")
             .setNegativeButton("Annuler",(d,w)->cancelled.set(true)).create();
         progress.setOnCancelListener(d->cancelled.set(true));progress.show();
         new Thread(()->{
             try{generate();activity.runOnUiThread(()->{if(active()){progress.dismiss();preview(0);}});}
-            catch(Exception e){activity.runOnUiThread(()->{if(active()){progress.dismiss();new AlertDialog.Builder(activity).setTitle("Plan non généré").setMessage(e.getMessage()==null?"Impossible de créer le plan. Réessaie avec une connexion Internet.":e.getMessage()).setPositiveButton("Fermer",null).show();}});}
+            catch(Exception e){activity.runOnUiThread(()->{if(active()){progress.dismiss();new RoutixDialogs.Builder(activity).setTitle("Plan non généré").setMessage(e.getMessage()==null?"Impossible de créer le plan. Réessaie avec une connexion Internet.":e.getMessage()).setPositiveButton("Fermer",null).show();}});}
         },"Routix-paper-plan").start();
     }
     private PaperRoute.Point project(double lat,double lon){return new PaperRoute.Point((lon-lon0)*lonScale,(lat-lat0)*111320);}
@@ -192,13 +192,13 @@ final class PrintablePlan {
     }
     private void preview(int index){
         if(!active())return;
-        LinearLayout layout=new LinearLayout(activity);layout.setOrientation(LinearLayout.VERTICAL);
-        TextView heading=new TextView(activity);heading.setText("Page "+(index+1)+" / "+images.size()+" • PNG haute résolution + PDF A4");layout.addView(heading);
+        CatppuccinTheme.Tokens theme=CatppuccinTheme.from(activity);LinearLayout layout=new LinearLayout(activity);layout.setOrientation(LinearLayout.VERTICAL);layout.setBackgroundColor(theme.base);
+        TextView heading=new TextView(activity);heading.setTextColor(theme.text);heading.setTextSize(14);heading.setPadding(16,12,16,12);heading.setText("Page "+(index+1)+" / "+images.size()+" • PNG haute résolution + PDF A4");layout.addView(heading);
         ImageView view=new ImageView(activity);BitmapFactory.Options options=new BitmapFactory.Options();options.inSampleSize=2;Bitmap bitmap=BitmapFactory.decodeFile(images.get(index).getAbsolutePath(),options);view.setImageBitmap(bitmap);view.setAdjustViewBounds(true);
         ScrollView scroll=new ScrollView(activity);scroll.addView(view);layout.addView(scroll,new LinearLayout.LayoutParams(-1,(int)(activity.getResources().getDisplayMetrics().heightPixels*.55)));
-        LinearLayout nav=new LinearLayout(activity);Button prev=new Button(activity);prev.setText("Précédente");prev.setEnabled(index>0);Button next=new Button(activity);next.setText("Suivante");next.setEnabled(index+1<images.size());nav.addView(prev);nav.addView(next);layout.addView(nav);
-        AlertDialog dialog=new AlertDialog.Builder(activity).setTitle("Plan imprimable").setView(layout).setNegativeButton("Fermer",null)
-            .setNeutralButton("Imprimer",(d,w)->print()).setPositiveButton("Partager",(d,w)->new AlertDialog.Builder(activity).setItems(new String[]{"Images PNG (toutes les pages)","PDF A4"},(a,choice)->share(choice==0)).show()).create();
+        LinearLayout nav=new LinearLayout(activity);Button prev=new Button(activity);prev.setText("Précédente");prev.setEnabled(index>0);Button next=new Button(activity);next.setText("Suivante");next.setEnabled(index+1<images.size());for(Button button:new Button[]{prev,next}){button.setAllCaps(false);button.setTextColor(theme.onAccent());button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(theme.accent));button.setMinHeight((int)(52*activity.getResources().getDisplayMetrics().density));nav.addView(button,new LinearLayout.LayoutParams(0,-2,1));}layout.addView(nav);
+        AlertDialog dialog=new RoutixDialogs.Builder(activity).setTitle("Plan imprimable").setView(layout).setNegativeButton("Fermer",null)
+            .setNeutralButton("Imprimer",(d,w)->print()).setPositiveButton("Partager",(d,w)->new RoutixDialogs.Builder(activity).setItems(new String[]{"Images PNG (toutes les pages)","PDF A4"},(a,choice)->share(choice==0)).show()).create();
         prev.setOnClickListener(v->{dialog.dismiss();preview(index-1);});next.setOnClickListener(v->{dialog.dismiss();preview(index+1);});dialog.setOnDismissListener(d->{view.setImageDrawable(null);if(bitmap!=null)bitmap.recycle();});dialog.show();
     }
     private void share(boolean png){

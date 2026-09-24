@@ -50,6 +50,6 @@ final class CompactSpeedometer extends View {
         paint.setStyle(Paint.Style.FILL);paint.setTextAlign(Paint.Align.LEFT);paint.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));paint.setTextSize(30*density);paint.setColor(theme.text);
         String value=valid?String.valueOf(Math.round(speed)):"—";canvas.drawText(value,4*density,34*density,paint);
         float x=Math.max(56*density,paint.measureText(value)+10*density);paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));paint.setTextSize(12*density);paint.setColor(theme.muted());canvas.drawText("km/h",x,25*density,paint);
-        paint.setTextSize(10*density);paint.setColor(valid?theme.green:theme.muted());canvas.drawText(valid?"GPS actif":"GPS…",x,40*density,paint);
+        paint.setTextSize(10*density);paint.setColor(valid?theme.readable(theme.green):theme.muted());canvas.drawText(valid?"GPS actif":"GPS…",x,40*density,paint);
     }
 }

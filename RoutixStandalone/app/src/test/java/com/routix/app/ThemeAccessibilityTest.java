@@ -17,6 +17,7 @@ public class ThemeAccessibilityTest {
             CatppuccinTheme.Tokens t=CatppuccinTheme.flavor(flavor,accent);
             assertTrue(flavor+" text",ColorUtils.calculateContrast(t.text,t.base)>=4.5);
             assertTrue(flavor+" supporting text",ColorUtils.calculateContrast(t.muted(),t.base)>=4.5);
+            assertTrue(flavor+" accent label "+accent,ColorUtils.calculateContrast(t.readable(t.accent),t.base)>=4.5);
             assertTrue(flavor+" "+accent,ColorUtils.calculateContrast(t.onAccent(),t.accent)>=4.5);
         }
     }

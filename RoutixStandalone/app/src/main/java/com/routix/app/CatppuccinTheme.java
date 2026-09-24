@@ -10,6 +10,7 @@ import java.util.Map;
 /** Central semantic design tokens. No screen should own palette values. */
 final class CatppuccinTheme {
     static final class Tokens {
+        final int background,surface,content,secondaryContent,success,error,warning,info,navigation;
         final String flavor; final int base,mantle,crust,surface0,surface1,surface2,overlay0,overlay1,overlay2,text,subtext1,subtext0;
         final int rosewater,flamingo,pink,mauve,red,maroon,peach,yellow,green,teal,sky,sapphire,blue,lavender,accent;
         Tokens(String f,String[] n,String accentName){
@@ -17,11 +18,13 @@ final class CatppuccinTheme {
             overlay0=c(n[6]);overlay1=c(n[7]);overlay2=c(n[8]);text=c(n[9]);subtext1=c(n[10]);subtext0=c(n[11]);
             rosewater=c(n[12]);flamingo=c(n[13]);pink=c(n[14]);mauve=c(n[15]);red=c(n[16]);maroon=c(n[17]);peach=c(n[18]);yellow=c(n[19]);
             green=c(n[20]);teal=c(n[21]);sky=c(n[22]);sapphire=c(n[23]);blue=c(n[24]);lavender=c(n[25]);accent=accent(accentName);
+            background=base;surface=mantle;content=text;secondaryContent=light()?subtext1:subtext0;success=green;error=red;warning=peach;info=blue;navigation=sapphire;
         }
         int accent(String name){String x=name==null?"mauve":name.toLowerCase(Locale.ROOT);switch(x){
             case "rosewater":return rosewater;case "flamingo":return flamingo;case "pink":return pink;case "red":return red;case "maroon":return maroon;
             case "peach":return peach;case "yellow":return yellow;case "green":return green;case "teal":return teal;case "sky":return sky;
             case "sapphire":return sapphire;case "blue":return blue;case "lavender":return lavender;default:return mauve;}}
+        int readable(int color){if(color==Color.BLACK||color==Color.WHITE)return color;return androidx.core.graphics.ColorUtils.calculateContrast(color,base)>=4.5&&androidx.core.graphics.ColorUtils.calculateContrast(color,mantle)>=4.5?color:text;}
         int muted(){return light()?subtext1:subtext0;}
         int onAccent(){return ink(accent);}
         int tint(int color){return androidx.core.graphics.ColorUtils.blendARGB(base,color,.16f);}

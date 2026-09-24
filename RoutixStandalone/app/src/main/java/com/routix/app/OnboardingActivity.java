@@ -26,7 +26,7 @@ public class OnboardingActivity extends AppCompatActivity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(theme.base);
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(24),dp(28),dp(24),dp(24));
         TextView brand=label("routix.",28,Typeface.BOLD,theme.text);page.addView(brand);
-        TextView eyebrow=label("TOURNÉES DE COLLECTE",12,Typeface.BOLD,theme.green);add(page,eyebrow,36);
+        TextView eyebrow=label("TOURNÉES DE COLLECTE",12,Typeface.BOLD,theme.secondaryContent);add(page,eyebrow,36);
         TextView title=label("Chaque rue.\nTon chemin.",36,Typeface.BOLD,theme.text);title.setLetterSpacing(-.035f);add(page,title,20);
         add(page,label("Autorise ta position précise pour enregistrer tes parcours et retrouver chaque rue.",16,Typeface.NORMAL,theme.subtext1),18);
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(20),dp(20),dp(20),dp(20));card.setBackground(CatppuccinTheme.surface(theme,theme.mantle,22,getResources().getDisplayMetrics().density));
@@ -50,6 +50,6 @@ public class OnboardingActivity extends AppCompatActivity {
     private void refresh(){if(action==null)return;boolean settings=settingsRequired();status.setText(settings?"Active Position précise dans les autorisations Android pour continuer.":"Choisis « Lorsque vous utilisez l’application » et active Position précise.");action.setText(settings?"Ouvrir les autorisations":"Autoriser et continuer");}
     private void launchApp(){startActivity(new Intent(this,RoutixActivity.class));finish();if(CatppuccinTheme.motion(prefs))overridePendingTransition(android.R.anim.fade_in,android.R.anim.fade_out);}
     private void add(LinearLayout parent,View child,int top){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(top);parent.addView(child,lp);}
-    private TextView label(String value,float size,int style,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTypeface(Typeface.create("sans-serif",style));t.setTextColor(color);t.setIncludeFontPadding(false);t.setLineSpacing(dp(3),1);return t;}
+    private TextView label(String value,float size,int style,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTypeface(Typeface.create("sans-serif",style));t.setTextColor(theme.readable(color));t.setIncludeFontPadding(false);t.setLineSpacing(dp(3),1);return t;}
     private int dp(int v){return Math.round(v*getResources().getDisplayMetrics().density);}
 }

@@ -21,7 +21,7 @@ final class RoutixDialogs {
         ListView list=dialog.getListView();if(list!=null){list.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener(){public void onChildViewAdded(View p,View c){tint(c,t);}public void onChildViewRemoved(View p,View c){}});}
     }
     private static void tint(View v,CatppuccinTheme.Tokens t){
-        if(v instanceof TextView&&!(v instanceof Button)){TextView text=(TextView)v;if(v.getId()==android.R.id.text1||v.getId()==android.R.id.message||v.getId()==android.R.id.title)text.setTextColor(t.text);}
+        if(v instanceof TextView&&!(v instanceof Button)){TextView text=(TextView)v;if(v.getId()==android.R.id.text1||v.getId()==android.R.id.message||v.getId()==android.R.id.title||v.getId()==v.getResources().getIdentifier("alertTitle","id","android"))text.setTextColor(t.text);}
         if(v instanceof EditText){((EditText)v).setTextColor(t.text);((EditText)v).setHintTextColor(t.muted());v.setBackgroundTintList(ColorStateList.valueOf(t.accent));}
         if(v instanceof CheckedTextView)((CheckedTextView)v).setCheckMarkTintList(ColorStateList.valueOf(t.accent));
         if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++)tint(g.getChildAt(i),t);}
