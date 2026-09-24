@@ -127,8 +127,7 @@ public class RoutixActivity extends AppCompatActivity {
     private View buildTopBar(){
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(10),dp(6),dp(8),dp(6));bar.setBackground(surface(SURFACE,24));bar.setElevation(dp(2));
         headerSpeed=new CompactSpeedometer(this);bar.addView(headerSpeed,new LinearLayout.LayoutParams(dp(116),dp(50)));
-        TextView status=text("routix.
-Tes tournées.",12f,Typeface.BOLD,MUTED);status.setMaxLines(2);status.setEllipsize(android.text.TextUtils.TruncateAt.END);status.setPadding(dp(7),0,dp(8),0);
+        TextView status=text("routix.\nTes tournées.",12f,Typeface.BOLD,MUTED);status.setMaxLines(2);status.setEllipsize(android.text.TextUtils.TruncateAt.END);status.setPadding(dp(7),0,dp(8),0);
         LinearLayout.LayoutParams statusLp=new LinearLayout.LayoutParams(0,-2,1);statusLp.width=0;bar.addView(status,statusLp);
         return bar;
     }
@@ -255,9 +254,7 @@ Tes tournées.",12f,Typeface.BOLD,MUTED);status.setMaxLines(2);status.setEllipsi
 
     private View gpxLabPage(){
         ScrollView sv=new ScrollView(this);LinearLayout p=page("GPX Lab","Avant / après du nettoyage et du recalage GPX.");List<File> files=store.routeFiles();if(files.isEmpty()){p.addView(infoCard("Aucun GPX","Importe ou enregistre une tournée pour afficher un avant / après."));sv.addView(p);return sv;}File f=files.get(0);String wanted=prefs.getString("gpx_lab_file",null);if(wanted!=null)for(File x:files)if(x.getName().equals(wanted)){f=x;break;}final File selected=f;RouteStore.Summary after=store.parse(selected);int input=prefs.getInt("import_input_"+selected.getName(),after.points.size()),output=prefs.getInt("import_output_"+selected.getName(),after.points.size()),invalid=prefs.getInt("import_invalid_"+selected.getName(),0),dup=prefs.getInt("import_duplicates_"+selected.getName(),0),simp=prefs.getInt("import_simplified_"+selected.getName(),Math.max(0,input-output));boolean matched=prefs.getBoolean("import_matched_"+selected.getName(),false);int confidence=prefs.getInt("import_confidence_"+selected.getName(),matched?0:100),generated=prefs.getInt("import_generated_steps_"+selected.getName(),0);
-        TextView choose=pill("Fichier : "+store.displayName(selected)+"  ▾",SURFACE2);choose.setOnClickListener(v->{String[] labels=new String[files.size()];for(int i=0;i<files.size();i++)labels[i]=store.displayName(files.get(i));new RoutixDialogs.Builder(this).setTitle("GPX à analyser").setItems(labels,(d,w)->{prefs.edit().putString("gpx_lab_file",files.get(w).getName()).apply();showTab("gpxlab",false);}).show();});p.addView(choose,new LinearLayout.LayoutParams(-1,dp(50)));p.addView(section("Avant / après"));LinearLayout compare=new LinearLayout(this);compare.addView(bigMetric(String.valueOf(input),"AVANT
-points bruts",PEACH),new LinearLayout.LayoutParams(0,dp(112),1));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(112),1);cp.leftMargin=dp(9);compare.addView(bigMetric(String.valueOf(output),"APRÈS
-points utiles",GREEN),cp);p.addView(compare);TextView delta=infoCard("Transformation","−"+Math.max(0,input-output)+" points • "+invalid+" invalides • "+dup+" doublons • "+simp+" simplifiés");LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(-1,-2);dl.topMargin=dp(9);p.addView(delta,dl);p.addView(section("Pipeline"));p.addView(stage("01","Validation GPS",invalid+" points rejetés",invalid>0?PEACH:GREEN));p.addView(stage("02","Déduplication",dup+" points trop proches supprimés",dup>0?BLUE:GREEN));p.addView(stage("03","Simplification conservatrice",simp+" points retirés sans casser les retours",MAUVE));p.addView(stage("04","Recalage routier",matched?("Actif • confiance "+confidence+" % • "+generated+" étapes ajoutées"):"Non appliqué / trace propre conservée",matched?TEAL:MUTED));p.addView(section("Contrôles"));p.addView(toggleRow("Optimiseur GPX","OFF = import brut : aucun point supprimé, simplifié ou recalé. ON = nettoyage et recalage routier.","gpx_match_roads",true,()->{}));sv.addView(p);return sv;
+        TextView choose=pill("Fichier : "+store.displayName(selected)+"  ▾",SURFACE2);choose.setOnClickListener(v->{String[] labels=new String[files.size()];for(int i=0;i<files.size();i++)labels[i]=store.displayName(files.get(i));new RoutixDialogs.Builder(this).setTitle("GPX à analyser").setItems(labels,(d,w)->{prefs.edit().putString("gpx_lab_file",files.get(w).getName()).apply();showTab("gpxlab",false);}).show();});p.addView(choose,new LinearLayout.LayoutParams(-1,dp(50)));p.addView(section("Avant / après"));LinearLayout compare=new LinearLayout(this);compare.addView(bigMetric(String.valueOf(input),"AVANT\npoints bruts",PEACH),new LinearLayout.LayoutParams(0,dp(112),1));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(112),1);cp.leftMargin=dp(9);compare.addView(bigMetric(String.valueOf(output),"APRÈS\npoints utiles",GREEN),cp);p.addView(compare);TextView delta=infoCard("Transformation","−"+Math.max(0,input-output)+" points • "+invalid+" invalides • "+dup+" doublons • "+simp+" simplifiés");LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(-1,-2);dl.topMargin=dp(9);p.addView(delta,dl);p.addView(section("Pipeline"));p.addView(stage("01","Validation GPS",invalid+" points rejetés",invalid>0?PEACH:GREEN));p.addView(stage("02","Déduplication",dup+" points trop proches supprimés",dup>0?BLUE:GREEN));p.addView(stage("03","Simplification conservatrice",simp+" points retirés sans casser les retours",MAUVE));p.addView(stage("04","Recalage routier",matched?("Actif • confiance "+confidence+" % • "+generated+" étapes ajoutées"):"Non appliqué / trace propre conservée",matched?TEAL:MUTED));p.addView(section("Contrôles"));p.addView(toggleRow("Optimiseur GPX","OFF = import brut : aucun point supprimé, simplifié ou recalé. ON = nettoyage et recalage routier.","gpx_match_roads",true,()->{}));sv.addView(p);return sv;
     }
 
     private View morePage(){ScrollView sv=new ScrollView(this);LinearLayout p=page("Plus","Les outils utiles, à portée de main.");
@@ -362,24 +359,17 @@ points utiles",GREEN),cp);p.addView(compare);TextView delta=infoCard("Transforma
         drawRemaining(state);
         GuidanceEngine.Maneuver maneuver=guidance==null?null:guidance.nextManeuver(state);
         if(approachingStart){
-            nextActionDistance=(float)distanceToApproachEnd(l);if(guideDistance!=null)guideDistance.setText(formatDistance(nextActionDistance)+"
-DÉPART");if(guideProgress!=null)guideProgress.setText("→
-APPROCHE");
-            if(guideCue!=null)guideCue.setText("↑  Rejoignez le départ
-"+formatDistance(nextActionDistance));
+            nextActionDistance=(float)distanceToApproachEnd(l);if(guideDistance!=null)guideDistance.setText(formatDistance(nextActionDistance)+"\nDÉPART");if(guideProgress!=null)guideProgress.setText("→\nAPPROCHE");
+            if(guideCue!=null)guideCue.setText("↑  Rejoignez le départ\n"+formatDistance(nextActionDistance));
         }else{
-            if(guideDistance!=null)guideDistance.setText(formatDistance(state.remainingM)+"
-RESTANT");if(guideProgress!=null)guideProgress.setText(state.progressPercent+" %
-PROGRESSION");
+            if(guideDistance!=null)guideDistance.setText(formatDistance(state.remainingM)+"\nRESTANT");if(guideProgress!=null)guideProgress.setText(state.progressPercent+" %\nPROGRESSION");
             nextActionDistance=maneuver==null?Float.MAX_VALUE:maneuver.distanceM;
             if(guideCue!=null){
                 if(state.poorAccuracy)guideCue.setText("GPS imprécis • progression conservée");
                 else if(state.offRoute)guideCue.setText("↩  Rejoignez le tracé");
                 else if(state.finished)guideCue.setText("Tournée terminée");
-                else if(state.nextEvent!=null&&state.distanceToNextEventM<nextActionDistance)guideCue.setText("⚑  "+state.nextEvent.label+"
-Dans "+formatDistance(state.distanceToNextEventM));
-                else if(maneuver!=null)guideCue.setText(maneuverGlyph(maneuver)+"  "+maneuver.instruction+"
-Dans "+formatDistance(maneuver.distanceM));
+                else if(state.nextEvent!=null&&state.distanceToNextEventM<nextActionDistance)guideCue.setText("⚑  "+state.nextEvent.label+"\nDans "+formatDistance(state.distanceToNextEventM));
+                else if(maneuver!=null)guideCue.setText(maneuverGlyph(maneuver)+"  "+maneuver.instruction+"\nDans "+formatDistance(maneuver.distanceM));
             }
         }
         followCamera(l,nextActionDistance);
@@ -426,10 +416,7 @@ Dans "+formatDistance(maneuver.distanceM));
     };
     private void syncTracking(){if(tracker==null||!tracker.ready||isDestroyed())return;boolean changed=recording!=tracker.recording||paused!=tracker.paused||guiding!=(tracker.guidance!=null);recording=tracker.recording;paused=tracker.paused;recordingStarted=tracker.started;recordedDistance=tracker.distance;guiding=tracker.guidance!=null;guidingRoute=tracker.route;guidance=tracker.guidance;
         // Copy only the counters into the existing recording UI; service owns the point lists.
-        if(recordDistance!=null)recordDistance.setText(formatDistance(recordedDistance)+"
-DISTANCE");if(recordPoints!=null)recordPoints.setText(tracker.points.size()+"
-POINTS");if(recordEvents!=null)recordEvents.setText(tracker.events.size()+"
-REPÈRES");
+        if(recordDistance!=null)recordDistance.setText(formatDistance(recordedDistance)+"\nDISTANCE");if(recordPoints!=null)recordPoints.setText(tracker.points.size()+"\nPOINTS");if(recordEvents!=null)recordEvents.setText(tracker.events.size()+"\nREPÈRES");
         if(changed)showTab(selectedTab,false);if(recordMain!=null)recordMain.setEnabled(!tracker.saving);drawRecordingTrace();if(tracker.location!=null)onLocationChanged(tracker.location);else if(guiding)drawRemaining(tracker.guidanceState);applyRuntimePrefs();
         if(!recoveryOffered){recoveryOffered=true;if(!recording&&store.hasDraft())offerDraftRecovery();}
     }
@@ -439,14 +426,11 @@ REPÈRES");
     private TextView section(String s){TextView t=text(s.toUpperCase(Locale.ROOT),10,Typeface.BOLD,accent);t.setPadding(0,dp(20),0,dp(8));return t;}
     private TextView text(String s,float size,int style,int color){TextView t=new TextView(this);t.setText(s);t.setTextSize(Math.max(12,size));t.setTextColor(theme.readable(color));t.setTypeface(Typeface.create("sans-serif",style));t.setIncludeFontPadding(false);t.setLineSpacing(dp(2),1);return t;}
     private TextView pill(String s,int color){TextView t=text(s,13,Typeface.BOLD,(color==accent||color==GREEN||color==PEACH||color==RED)?CatppuccinTheme.ink(color):TEXT);t.setGravity(Gravity.CENTER);t.setMinHeight(dp(52));t.setPadding(dp(8),dp(8),dp(8),dp(8));t.setMaxLines(2);androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(t,11,15,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setBackground(surface(color,12));return t;}
-    private TextView metric(String value,String label){TextView t=text(value+"
-"+label,13,Typeface.BOLD,TEXT);t.setGravity(Gravity.CENTER);t.setBackground(surface(SURFACE,20));return t;}
-    private TextView bigMetric(String value,String label,int color){TextView t=text(value+"
-"+label,18,Typeface.BOLD,TEXT);t.setGravity(Gravity.CENTER);t.setBackground(surface(theme.tint(color),24));return t;}
+    private TextView metric(String value,String label){TextView t=text(value+"\n"+label,13,Typeface.BOLD,TEXT);t.setGravity(Gravity.CENTER);t.setBackground(surface(SURFACE,20));return t;}
+    private TextView bigMetric(String value,String label,int color){TextView t=text(value+"\n"+label,18,Typeface.BOLD,TEXT);t.setGravity(Gravity.CENTER);t.setBackground(surface(theme.tint(color),24));return t;}
     private TextView icon(String s){TextView t=text("",19,Typeface.BOLD,TEXT);t.setGravity(Gravity.CENTER);t.setPadding(dp(13),dp(13),dp(13),dp(13));String kind="◎".equals(s)?"locate":("↑".equals(s)||"N".equals(s))?"north":"more";TerrainIcon glyph=new TerrainIcon(kind,TEXT);glyph.setBounds(0,0,dp(22),dp(22));t.setCompoundDrawables(glyph,null,null,null);t.setBackground(surface(SURFACE2,12));return t;}
 
-    private TextView infoCard(String title,String body){TextView t=text(title+"
-"+body,12,Typeface.NORMAL,MUTED);t.setPadding(dp(14),dp(12),dp(14),dp(12));t.setBackground(surface(SURFACE,20));return t;}
+    private TextView infoCard(String title,String body){TextView t=text(title+"\n"+body,12,Typeface.NORMAL,MUTED);t.setPadding(dp(14),dp(12),dp(14),dp(12));t.setBackground(surface(SURFACE,20));return t;}
     private View stage(String number,String title,String sub,int color){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);r.setPadding(dp(12),dp(10),dp(12),dp(10));r.setBackground(surface(SURFACE,18));TextView n=text(number,12,Typeface.BOLD,color);n.setGravity(Gravity.CENTER);n.setBackground(surface(SURFACE2,14));r.addView(n,new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.setPadding(dp(11),0,0,0);tx.addView(text(title,13,Typeface.BOLD,TEXT));tx.addView(text(sub,11,Typeface.NORMAL,MUTED));r.addView(tx,new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(7);r.setLayoutParams(lp);return r;}
     private View summaryStat(String label,String value){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setGravity(Gravity.CENTER);c.addView(text(value,13,Typeface.BOLD,TEXT));c.addView(text(label,9,Typeface.BOLD,MUTED));return c;}
     private GradientDrawable surface(int color,float radius){return CatppuccinTheme.surface(theme,color,radius>=90?99:radius<=16?12:22,getResources().getDisplayMetrics().density);}
