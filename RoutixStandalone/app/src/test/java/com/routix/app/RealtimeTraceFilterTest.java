@@ -1,7 +1,8 @@
 package com.routix.app;
 import android.location.Location;
-import org.junit.Test;
+import org.junit.Test;import org.junit.runner.RunWith;import org.robolectric.RobolectricTestRunner;
 import static org.junit.Assert.*;
+@RunWith(RobolectricTestRunner.class)
 public class RealtimeTraceFilterTest {
     private Location p(double lat,double lon,long ms,float accuracy,float speed,float bearing){Location l=new Location("gps");l.setLatitude(lat);l.setLongitude(lon);l.setTime(ms);l.setElapsedRealtimeNanos(ms*1000000L);l.setAccuracy(accuracy);l.setSpeed(speed);l.setBearing(bearing);return l;}
     @Test public void noisyStraightTraceStaysNearCenterline(){RealtimeTraceFilter f=new RealtimeTraceFilter();double base=48.830000;Location a=f.update(p(base,7.980000,1000,5,8,90));Location b=f.update(p(base+.000045,7.980100,2000,18,8,90));Location c=f.update(p(base-.000040,7.980200,3000,18,8,90));assertTrue(Math.abs(c.getLatitude()-base)<.000040);assertTrue(c.getLongitude()>b.getLongitude());}
