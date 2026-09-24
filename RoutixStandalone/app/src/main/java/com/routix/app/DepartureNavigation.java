@@ -39,7 +39,7 @@ final class DepartureNavigation {
     }
 
     static boolean isFreshFix(Location fix){
-        if(fix==null||!RouteStore.validCoordinates(fix.getLatitude(),fix.getLongitude())||!fix.hasAccuracy()||fix.getAccuracy()>80)return false;
+        if(fix==null||!RouteStore.validCoordinates(fix.getLatitude(),fix.getLongitude())||!fix.hasAccuracy()||!Float.isFinite(fix.getAccuracy())||fix.getAccuracy()<0||fix.getAccuracy()>80)return false;
         long elapsed=fix.getElapsedRealtimeNanos(),nowElapsed=SystemClock.elapsedRealtimeNanos();
         long ageMs;
         if(elapsed>0&&nowElapsed>=elapsed)ageMs=(nowElapsed-elapsed)/1_000_000L;
