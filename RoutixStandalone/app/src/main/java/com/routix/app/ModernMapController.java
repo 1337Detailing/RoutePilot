@@ -22,7 +22,7 @@ import static org.maplibre.android.style.layers.PropertyFactory.*;
 final class ModernMapController {
     private static final int MAX_ROUTE_RENDER_POINTS=6000,MAX_ARROW_RENDER_POINTS=1800;
     private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
-    private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList(),approach=Collections.emptyList();private Location location;
+    private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList(),approach=Collections.emptyList();private Location location,headingFix;
     private long routeSignature=Long.MIN_VALUE,approachSignature=Long.MIN_VALUE,lastCameraMs;
     private boolean follow=true,heading=true,destroyed,visible=true,bearingReady,guidingMode,pulseHigh;
     private double bearing;private String styleUri;private float actionDistance=Float.MAX_VALUE;
@@ -99,12 +99,22 @@ final class ModernMapController {
         if(!visible||map==null||style==null||fix==null||destroyed)return;
         if(!MapStyles.uri(prefs).equals(styleUri)){refreshStyle();return;}
         GeoJsonSource source=style.getSourceAs("position");if(source!=null)source.setGeoJson(Feature.fromGeometry(Point.fromLngLat(fix.getLongitude(),fix.getLatitude())));
-        boolean moving=fix.hasSpeed()&&fix.getSpeed()>.8f;
-        if(heading&&fix.hasBearing()&&moving&&fix.getAccuracy()<35){double target=fix.getBearing();bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}
+        boolean accurate=!fix.hasAccuracy()||fix.getAccuracy()<35f;
+        float derivedDistance=0f;long derivedDt=0L;
+        if(headingFix!=null){derivedDistance=headingFix.distanceTo(fix);derivedDt=fix.getTime()-headingFix.getTime();}
+        boolean derivedMoving=accurate&&headingFix!=null&&derivedDt>0&&derivedDt<=10000&&derivedDistance>=4f;
+        boolean moving=(fix.hasSpeed()&&fix.getSpeed()>.8f)||derivedMoving;
+        if(heading&&accurate){
+            double target=Double.NaN;
+            if(fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.8f)target=fix.getBearing();
+            else if(derivedMoving)target=headingFix.bearingTo(fix);
+            if(!Double.isNaN(target)){bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}
+        }
+        if(accurate&&(headingFix==null||derivedDt<=0||derivedDt>10000||derivedDistance>=4f))headingFix=new Location(fix);
         if(!follow)return;
         long now=SystemClock.elapsedRealtime();long throttle=prefs.getBoolean("battery_saver",true)?(moving?850:3500):450;if(now-lastCameraMs<throttle)return;lastCameraMs=now;
         double zoom=guiding?zoomFor(nextActionDistance):16.8;
-        CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(zoom).bearing(heading&&guiding?bearing:0).tilt(guiding?30:0).build();
+        CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(zoom).bearing(heading&&guiding&&bearingReady?bearing:0).tilt(guiding?30:0).build();
         map.easeCamera(CameraUpdateFactory.newCameraPosition(next),moving?460:700);
     }
     private double zoomFor(float meters){if(!Float.isFinite(meters))return 17.2;if(meters<55)return 18.45;if(meters<140)return 18.0;if(meters<320)return 17.55;if(meters<700)return 17.1;return 16.75;}
@@ -121,5 +131,5 @@ final class ModernMapController {
     void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
     void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
     void onSaveInstanceState(Bundle state){view.onSaveInstanceState(state);}void onLowMemory(){view.onLowMemory();}
-    void onDestroy(){destroyed=true;main.removeCallbacksAndMessages(null);style=null;map=null;location=null;route=Collections.emptyList();approach=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;approachSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
+    void onDestroy(){destroyed=true;main.removeCallbacksAndMessages(null);style=null;map=null;location=null;headingFix=null;route=Collections.emptyList();approach=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;approachSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
 }
