@@ -46,12 +46,10 @@ final class CompactSpeedometer extends View {
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();if(valid){long remaining=5000-(SystemClock.elapsedRealtimeNanos()-fixNanos)/1000000;if(remaining<=0)expire.run();else postDelayed(expire,remaining);}}
     @Override protected void onDetachedFromWindow(){removeCallbacks(expire);super.onDetachedFromWindow();}
     @Override protected void onDraw(Canvas canvas){
-        super.onDraw(canvas);float scale=Math.min(getWidth()/112f,getHeight()/58f);canvas.save();canvas.translate(0,(getHeight()-58*scale)/2);canvas.scale(scale,scale);
-        paint.setStyle(Paint.Style.STROKE);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeWidth(3);paint.setColor(theme.surface1);
-        RectF arc=new RectF(3,4,53,54);canvas.drawArc(arc,140,260,false,paint);paint.setColor(theme.sapphire);canvas.drawArc(arc,140,valid?260*Math.min(speed/100,1):0,false,paint);
-        paint.setStyle(Paint.Style.FILL);paint.setTextAlign(Paint.Align.CENTER);paint.setColor(theme.text);paint.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));paint.setTextSize(valid&&speed>=100?22:27);
-        canvas.drawText(valid?String.valueOf(Math.round(speed)):"—",28,37,paint);
-        paint.setTextAlign(Paint.Align.LEFT);paint.setTextSize(12);paint.setColor(theme.text);canvas.drawText("km/h",63,27,paint);
-        paint.setTextSize(9);paint.setColor(valid?theme.sapphire:theme.muted());canvas.drawText(valid?"EN DIRECT":"GPS…",63,43,paint);canvas.restore();
+        super.onDraw(canvas);float density=getResources().getDisplayMetrics().density;
+        paint.setStyle(Paint.Style.FILL);paint.setTextAlign(Paint.Align.LEFT);paint.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));paint.setTextSize(30*density);paint.setColor(theme.text);
+        String value=valid?String.valueOf(Math.round(speed)):"—";canvas.drawText(value,4*density,34*density,paint);
+        float x=Math.max(56*density,paint.measureText(value)+10*density);paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));paint.setTextSize(12*density);paint.setColor(theme.muted());canvas.drawText("km/h",x,25*density,paint);
+        paint.setTextSize(10*density);paint.setColor(valid?theme.green:theme.muted());canvas.drawText(valid?"GPS actif":"GPS…",x,40*density,paint);
     }
 }
