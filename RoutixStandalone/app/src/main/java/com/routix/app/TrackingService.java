@@ -32,6 +32,7 @@ public final class TrackingService extends Service implements LocationListener {
     private int gpsProfile=-1;private long stationarySince,lastUiPublishMs,lastStatsWriteMs;
     private Listener listener;private TextToSpeech speech;private boolean speechReady;private GuidanceEngine.Event spoken;
     private long lastProgressWriteMs;private float lastProgressWriteM=-1;private Location lastAcceptedRecordFix,lastAcceptedGuidanceFix;
+    private final RealtimeTraceFilter recordFilter=new RealtimeTraceFilter();
     private final java.util.concurrent.atomic.AtomicBoolean draftPending=new java.util.concurrent.atomic.AtomicBoolean();
 
     private final Runnable draft=new Runnable(){public void run(){
@@ -77,7 +78,7 @@ public final class TrackingService extends Service implements LocationListener {
     private void persistProgress(float progress,boolean force){long now=SystemClock.elapsedRealtime();if(!force&&now-lastProgressWriteMs<4000&&lastProgressWriteM>=0&&Math.abs(progress-lastProgressWriteM)<12f)return;lastProgressWriteMs=now;lastProgressWriteM=progress;write(()->journal.state("progress",Float.toString(progress)));}
     private void persistGuidanceStats(boolean force){if(guidance==null&&!force)return;long now=SystemClock.elapsedRealtime();if(!force&&now-lastStatsWriteMs<15000)return;lastStatsWriteMs=now;long start=guidanceStartedAt;double dist=guidanceTravelDistance;int rev=guidanceReverseAdded,two=guidanceTwoSidesAdded;write(()->{journal.state("guidance_started",Long.toString(start));journal.state("guidance_distance",Double.toString(dist));journal.state("guidance_reverse",Integer.toString(rev));journal.state("guidance_two_sides",Integer.toString(two));});}
 
-    boolean beginRecording(){if(!ready||saving||recording||!activate())return false;points.clear();events.clear();distance=0;lastAcceptedRecordFix=null;started=System.currentTimeMillis();recording=true;paused=false;long start=started;write(()->{journal.clearRecording();journal.state("started",Long.toString(start));journal.state("recording","true");store.clearDraft();});requestProfile(GPS_MOVING);publish();return true;}
+    boolean beginRecording(){if(!ready||saving||recording||!activate())return false;points.clear();events.clear();distance=0;lastAcceptedRecordFix=null;recordFilter.reset();started=System.currentTimeMillis();recording=true;paused=false;long start=started;write(()->{journal.clearRecording();journal.state("started",Long.toString(start));journal.state("recording","true");store.clearDraft();});requestProfile(GPS_MOVING);publish();return true;}
     void recoverDraft(RouteStore.Summary draft){if(!beginRecording())return;points.addAll(draft.points);events.addAll(draft.events);distance=draft.distanceM;started=draft.firstTime;List<RouteStore.Point> p=new ArrayList<>(points);List<RouteStore.Event> e=new ArrayList<>(events);long start=started;write(()->{journal.state("started",Long.toString(start));for(RouteStore.Point x:p)journal.point(x);for(RouteStore.Event x:e)journal.event(x);});publish();}
     void togglePause(){if(!recording||saving)return;paused=!paused;boolean value=paused;write(()->journal.state("paused",Boolean.toString(value)));saveDraft();publish();}
     void addEvent(String type,String label){if(!recording||paused||location==null)return;RouteStore.Event e=new RouteStore.Event(type,label,location.getLatitude(),location.getLongitude(),System.currentTimeMillis(),location.getAccuracy());events.add(e);write(()->journal.event(e));publish();}
@@ -127,8 +128,17 @@ public final class TrackingService extends Service implements LocationListener {
         }
 
         try{if(recording&&!paused&&!saving&&fix.getAccuracy()<=prefs.getInt("record_accuracy",45)){
-            RouteStore.Point p=new RouteStore.Point(fix.getLatitude(),fix.getLongitude(),fix.getTime(),fix.getAccuracy());double d=points.isEmpty()?0:RouteNormalizer.distanceM(points.get(points.size()-1),p);
-            if(points.isEmpty()||d>=prefs.getInt("record_spacing",2)){Location ref=lastAcceptedRecordFix;long dt=ref==null?0:(fix.getElapsedRealtimeNanos()-ref.getElapsedRealtimeNanos())/1_000_000L;boolean ok=ref==null||GpsMovementFilter.plausible(ref.distanceTo(fix),dt,ref.getAccuracy(),fix.getAccuracy());if(ok){distance+=d;points.add(p);lastAcceptedRecordFix=new Location(fix);write(()->journal.point(p));}}
+            Location ref=lastAcceptedRecordFix;long dt=ref==null?0:(fix.getElapsedRealtimeNanos()-ref.getElapsedRealtimeNanos())/1_000_000L;
+            boolean plausible=ref==null||GpsMovementFilter.plausible(ref.distanceTo(fix),dt,ref.getAccuracy(),fix.getAccuracy());
+            if(plausible){
+                Location filtered=recordFilter.update(fix);RouteStore.Point p=new RouteStore.Point(filtered.getLatitude(),filtered.getLongitude(),fix.getTime(),filtered.getAccuracy());
+                double d=points.isEmpty()?0:RouteNormalizer.distanceM(points.get(points.size()-1),p);
+                // Adaptive spacing: dense at low speed/corners, slightly wider at road speed.
+                double spacing=prefs.getInt("record_spacing",2);if(fix.hasSpeed())spacing=Math.max(spacing,Math.min(5.0,1.5+fix.getSpeed()*.10));
+                if(points.isEmpty()||d>=spacing){distance+=d;points.add(p);write(()->journal.point(p));}
+                // Plausibility must reference the accepted RAW fix, not the filtered coordinate.
+                lastAcceptedRecordFix=new Location(fix);
+            }
         }}catch(RuntimeException e){DiagnosticLog.error("record fix",e);}
 
         try{if(guidance!=null){
