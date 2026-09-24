@@ -34,13 +34,14 @@ public final class TrackingService extends Service implements LocationListener {
     private long lastProgressWriteMs;private float lastProgressWriteM=-1;private Location lastAcceptedRecordFix,lastAcceptedGuidanceFix;
     private final RealtimeTraceFilter recordFilter=new RealtimeTraceFilter();
     private final java.util.concurrent.atomic.AtomicBoolean draftPending=new java.util.concurrent.atomic.AtomicBoolean();
+    private final RouteAwareAnalyzer routeAware=new RouteAwareAnalyzer();private RoadContextProvider roadContext;private StreetPassageStore streetPassages;
 
     private final Runnable draft=new Runnable(){public void run(){
         if(recording)saveDraft();
         if(!closed)main.postDelayed(this,prefs!=null&&prefs.getBoolean("battery_saver",true)?30000:15000);
     }};
 
-    @Override public void onCreate(){super.onCreate();prefs=getSharedPreferences("routix",MODE_PRIVATE);journal=new SessionJournal(this);store=new RouteStore(this,prefs);manager=(LocationManager)getSystemService(LOCATION_SERVICE);
+    @Override public void onCreate(){super.onCreate();prefs=getSharedPreferences("routix",MODE_PRIVATE);journal=new SessionJournal(this);store=new RouteStore(this,prefs);manager=(LocationManager)getSystemService(LOCATION_SERVICE);roadContext=new RoadContextProvider(this);streetPassages=new StreetPassageStore(this);
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel("tracking","Tournée en cours",NotificationManager.IMPORTANCE_LOW));
         io.execute(()->{try{
             List<RouteStore.Point> p=new ArrayList<>();List<RouteStore.Event> e=new ArrayList<>();journal.read(p,e);
@@ -78,11 +79,11 @@ public final class TrackingService extends Service implements LocationListener {
     private void persistProgress(float progress,boolean force){long now=SystemClock.elapsedRealtime();if(!force&&now-lastProgressWriteMs<4000&&lastProgressWriteM>=0&&Math.abs(progress-lastProgressWriteM)<12f)return;lastProgressWriteMs=now;lastProgressWriteM=progress;write(()->journal.state("progress",Float.toString(progress)));}
     private void persistGuidanceStats(boolean force){if(guidance==null&&!force)return;long now=SystemClock.elapsedRealtime();if(!force&&now-lastStatsWriteMs<15000)return;lastStatsWriteMs=now;long start=guidanceStartedAt;double dist=guidanceTravelDistance;int rev=guidanceReverseAdded,two=guidanceTwoSidesAdded;write(()->{journal.state("guidance_started",Long.toString(start));journal.state("guidance_distance",Double.toString(dist));journal.state("guidance_reverse",Integer.toString(rev));journal.state("guidance_two_sides",Integer.toString(two));});}
 
-    boolean beginRecording(){if(!ready||saving||recording||!activate())return false;points.clear();events.clear();distance=0;lastAcceptedRecordFix=null;recordFilter.reset();started=System.currentTimeMillis();recording=true;paused=false;long start=started;write(()->{journal.clearRecording();journal.state("started",Long.toString(start));journal.state("recording","true");store.clearDraft();});requestProfile(GPS_MOVING);publish();return true;}
+    boolean beginRecording(){if(!ready||saving||recording||!activate())return false;points.clear();events.clear();distance=0;lastAcceptedRecordFix=null;recordFilter.reset();routeAware.reset();streetPassages.resetSession();started=System.currentTimeMillis();recording=true;paused=false;long start=started;write(()->{journal.clearRecording();journal.state("started",Long.toString(start));journal.state("recording","true");store.clearDraft();});requestProfile(GPS_MOVING);publish();return true;}
     void recoverDraft(RouteStore.Summary draft){if(!beginRecording())return;points.addAll(draft.points);events.addAll(draft.events);distance=draft.distanceM;started=draft.firstTime;List<RouteStore.Point> p=new ArrayList<>(points);List<RouteStore.Event> e=new ArrayList<>(events);long start=started;write(()->{journal.state("started",Long.toString(start));for(RouteStore.Point x:p)journal.point(x);for(RouteStore.Event x:e)journal.event(x);});publish();}
     void togglePause(){if(!recording||saving)return;paused=!paused;boolean value=paused;write(()->journal.state("paused",Boolean.toString(value)));saveDraft();publish();}
     void addEvent(String type,String label){if(!recording||paused||location==null)return;RouteStore.Event e=new RouteStore.Event(type,label,location.getLatitude(),location.getLongitude(),System.currentTimeMillis(),location.getAccuracy());events.add(e);write(()->journal.event(e));publish();}
-    void finish(java.util.function.Consumer<File> result){if(saving||points.size()<2)return;saving=true;boolean wasPaused=paused;paused=true;List<RouteStore.Point> p=new ArrayList<>(points);List<RouteStore.Event> e=new ArrayList<>(events);long start=started;publish();io.execute(()->{File f=null;try{f=store.createRoute(p,e,start);if(f!=null){journal.clearRecording();store.clearDraft();}}catch(RuntimeException ex){DiagnosticLog.error("finish recording",ex);}File saved=f;main.post(()->{saving=false;if(saved!=null){recording=false;paused=false;points.clear();events.clear();distance=0;idle();}else paused=wasPaused;publish();result.accept(saved);});});}
+    void finish(java.util.function.Consumer<File> result){if(saving||points.size()<2)return;saving=true;boolean wasPaused=paused;paused=true;List<RouteStore.Point> p=new ArrayList<>(points);List<RouteStore.Event> e=new ArrayList<>(events);long start=started;publish();io.execute(()->{File f=null;try{f=store.createRoute(p,e,start);if(f!=null){journal.clearRecording();store.clearDraft();streetPassages.save(f.getName());}}catch(RuntimeException ex){DiagnosticLog.error("finish recording",ex);}File saved=f;main.post(()->{saving=false;if(saved!=null){recording=false;paused=false;points.clear();events.clear();distance=0;idle();}else paused=wasPaused;publish();result.accept(saved);});});}
 
     void beginGuidance(RouteStore.Summary s){if(!ready||s==null||s.points.size()<2||!activate())return;
         guidanceStartedAt=System.currentTimeMillis();guidanceTravelDistance=0;lastAcceptedGuidanceFix=null;guidanceReverseAdded=0;guidanceTwoSidesAdded=0;lastStatsWriteMs=0;
@@ -131,8 +132,9 @@ public final class TrackingService extends Service implements LocationListener {
             Location ref=lastAcceptedRecordFix;long dt=ref==null?0:(fix.getElapsedRealtimeNanos()-ref.getElapsedRealtimeNanos())/1_000_000L;
             boolean plausible=ref==null||GpsMovementFilter.plausible(ref.distanceTo(fix),dt,ref.getAccuracy(),fix.getAccuracy());
             if(plausible){
-                Location filtered=recordFilter.update(fix);RouteStore.Point p=new RouteStore.Point(filtered.getLatitude(),filtered.getLongitude(),fix.getTime(),filtered.getAccuracy());
-                double d=points.isEmpty()?0:RouteNormalizer.distanceM(points.get(points.size()-1),p);
+                Location filtered=recordFilter.update(fix);RouteAwareAnalyzer.Observation road=routeAware.update(filtered,roadContext.nearby(filtered));Location smart=road.snapped?road.location:filtered;
+                RouteStore.Point p=new RouteStore.Point(smart.getLatitude(),smart.getLongitude(),fix.getTime(),smart.getAccuracy());
+                double d=points.isEmpty()?0:RouteNormalizer.distanceM(points.get(points.size()-1),p);streetPassages.observe(road,fix.getTime(),d);
                 // Adaptive spacing: dense at low speed/corners, slightly wider at road speed.
                 double spacing=prefs.getInt("record_spacing",2);if(fix.hasSpeed())spacing=Math.max(spacing,Math.min(5.0,1.5+fix.getSpeed()*.10));
                 if(points.isEmpty()||d>=spacing){distance+=d;points.add(p);write(()->journal.point(p));}
@@ -158,5 +160,5 @@ public final class TrackingService extends Service implements LocationListener {
     @Override public void onProviderDisabled(String provider){DiagnosticLog.info("GPS disabled");publish();}
     @Override public void onProviderEnabled(String provider){DiagnosticLog.info("GPS enabled");publish();}
     @Override public void onTaskRemoved(Intent rootIntent){if(recording)saveDraft();if(guidance!=null){persistProgress(guidance.progressM(),true);persistGuidanceStats(true);}DiagnosticLog.info("task removed while tracking="+(recording||guidance!=null));super.onTaskRemoved(rootIntent);}
-    @Override public void onDestroy(){if(recording)saveDraft();if(guidance!=null){persistProgress(guidance.progressM(),true);persistGuidanceStats(true);}closed=true;listener=null;main.removeCallbacksAndMessages(null);unsubscribe();releaseSpeech();try{io.execute(journal::close);}catch(RejectedExecutionException e){DiagnosticLog.error("journal close rejected",e);}io.shutdown();super.onDestroy();}
+    @Override public void onDestroy(){if(recording)saveDraft();if(guidance!=null){persistProgress(guidance.progressM(),true);persistGuidanceStats(true);}closed=true;listener=null;main.removeCallbacksAndMessages(null);unsubscribe();releaseSpeech();if(roadContext!=null)roadContext.close();try{io.execute(journal::close);}catch(RejectedExecutionException e){DiagnosticLog.error("journal close rejected",e);}io.shutdown();super.onDestroy();}
 }
