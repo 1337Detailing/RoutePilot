@@ -203,10 +203,20 @@ public class RoutixActivity extends AppCompatActivity {
 
     private void createFolderDialog(){EditText e=new EditText(this);e.setHint("Nom du dossier");e.setSingleLine(true);new RoutixDialogs.Builder(this).setTitle("Nouveau dossier").setView(e).setNegativeButton("Annuler",null).setPositiveButton("Créer",(d,w)->{boolean ok=folderStore.create(e.getText().toString());toast(ok?"Dossier créé":"Nom invalide ou déjà utilisé");if(ok)showTab("routes",false);}).show();}
     private void folderMenu(String folder){
-        new RoutixDialogs.Builder(this).setTitle(folder).setItems(new String[]{"Renommer","Supprimer le dossier"},(d,w)->{
-            if(w==0){EditText e=new EditText(this);e.setText(folder);e.setSingleLine(true);new RoutixDialogs.Builder(this).setTitle("Renommer le dossier").setView(e).setNegativeButton("Annuler",null).setPositiveButton("Renommer",(x,y)->{boolean ok=folderStore.rename(folder,e.getText().toString());toast(ok?"Dossier renommé":"Renommage impossible");if(ok)showTab("routes",false);}).show();}
+        new RoutixDialogs.Builder(this).setTitle(folder).setItems(new String[]{"Ajouter des tournées","Renommer","Supprimer le dossier"},(d,w)->{
+            if(w==0)addRoutesToFolder(folder);
+            else if(w==1){EditText e=new EditText(this);e.setText(folder);e.setSingleLine(true);new RoutixDialogs.Builder(this).setTitle("Renommer le dossier").setView(e).setNegativeButton("Annuler",null).setPositiveButton("Renommer",(x,y)->{boolean ok=folderStore.rename(folder,e.getText().toString());toast(ok?"Dossier renommé":"Renommage impossible");if(ok)showTab("routes",false);}).show();}
             else new RoutixDialogs.Builder(this).setTitle("Supprimer le dossier ?").setMessage("Les tournées seront replacées à la racine. Aucun GPX ne sera supprimé.").setNegativeButton("Annuler",null).setPositiveButton("Supprimer",(x,y)->{folderStore.delete(folder);showTab("routes",false);}).show();
         }).show();
+    }
+
+    private void addRoutesToFolder(String folder){
+        List<File> candidates=new ArrayList<>();for(File f:store.routeFiles())if(!folder.equals(folderStore.folderOf(f)))candidates.add(f);
+        if(candidates.isEmpty()){toast("Toutes les tournées sont déjà dans ce dossier");return;}
+        String[] labels=new String[candidates.size()];boolean[] checked=new boolean[candidates.size()];
+        for(int i=0;i<candidates.size();i++){File f=candidates.get(i);String current=folderStore.folderOf(f);labels[i]=store.displayName(f)+(current.isEmpty()?"":"  •  "+current);}
+        new RoutixDialogs.Builder(this).setTitle("Ajouter à "+folder).setMultiChoiceItems(labels,checked,(d,which,isChecked)->checked[which]=isChecked)
+            .setNegativeButton("Annuler",null).setPositiveButton("Ajouter",(d,w)->{int moved=0;for(int i=0;i<candidates.size();i++)if(checked[i]&&folderStore.move(candidates.get(i),folder))moved++;folderStore.setExpanded(folder,true);toast(moved==0?"Aucune tournée sélectionnée":moved+" tournée(s) ajoutée(s)");showTab("routes",false);}).show();
     }
 
     private View routeCard(File f,int index){
