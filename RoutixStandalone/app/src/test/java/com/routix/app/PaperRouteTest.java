@@ -21,4 +21,14 @@ public class PaperRouteTest {
         List<PaperRoute.Step> steps=Arrays.asList(new PaperRoute.Step(0,1,"A"),new PaperRoute.Step(18,2,"B"),new PaperRoute.Step(39,3,"C"),new PaperRoute.Step(58,4,"D"));
         List<int[]> pages=PaperRoute.sheets(pts,steps);assertEquals(3,pages.size());assertEquals(18,pages.get(0)[1]);assertEquals(39,pages.get(1)[1]);assertEquals(60,pages.get(2)[1]);
     }
+    @Test public void crossingRoadUsesTravelHeading(){
+        List<PaperRoute.Point> trace=Arrays.asList(p(-40,3),p(-10,2),p(20,2),p(50,1));
+        List<PaperRoute.Step> s=PaperRoute.steps(trace,Arrays.asList(road("h","Rue Horizontale",p(-100,0),p(100,0)),road("v","Rue Verticale",p(0,-100),p(0,100))));
+        assertTrue(s.get(0).name.startsWith("Rue Horizontale"));
+    }
+    @Test public void parallelRoadDoesNotOscillateOnSmallGpsNoise(){
+        List<PaperRoute.Point> trace=Arrays.asList(p(0,3),p(20,6),p(40,4),p(60,7),p(80,3),p(100,5));
+        List<PaperRoute.Step> s=PaperRoute.steps(trace,Arrays.asList(road("a","Rue A",p(-20,0),p(120,0)),road("b","Rue B",p(-20,12),p(120,12))));
+        assertEquals(1,s.size());assertTrue(s.get(0).name.startsWith("Rue A"));
+    }
 }
