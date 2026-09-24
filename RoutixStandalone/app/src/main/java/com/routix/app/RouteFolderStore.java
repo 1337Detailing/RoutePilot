@@ -45,8 +45,24 @@ final class RouteFolderStore {
         e.remove("route_folder_open_"+n).apply();
     }
 
-    String folderOf(File file){if(file==null)return ROOT;String v=prefs.getString("route_folder_"+file.getName(),ROOT);return v==null?ROOT:v;}
-    void move(File file,String folder){if(file==null)return;String n=clean(folder);if(n.isEmpty())prefs.edit().remove("route_folder_"+file.getName()).apply();else prefs.edit().putString("route_folder_"+file.getName(),n).apply();}
+    String folderOf(File file){
+        if(file==null)return ROOT;
+        String v=clean(prefs.getString("route_folder_"+file.getName(),ROOT));
+        if(v.isEmpty())return ROOT;
+        for(String folder:folders())if(folder.equalsIgnoreCase(v))return folder;
+        prefs.edit().remove("route_folder_"+file.getName()).apply();
+        return ROOT;
+    }
+
+    boolean move(File file,String folder){
+        if(file==null)return false;
+        String n=clean(folder);
+        if(n.isEmpty()){prefs.edit().remove("route_folder_"+file.getName()).apply();return true;}
+        String canonical=null;for(String existing:folders())if(existing.equalsIgnoreCase(n)){canonical=existing;break;}
+        if(canonical==null)return false;
+        prefs.edit().putString("route_folder_"+file.getName(),canonical).apply();return true;
+    }
+
     void migrateFileName(String oldName,String newName){
         if(oldName==null||newName==null||oldName.equals(newName))return;String key="route_folder_"+oldName;if(!prefs.contains(key))return;String folder=prefs.getString(key,ROOT);prefs.edit().remove(key).putString("route_folder_"+newName,folder).apply();
     }
