@@ -1,0 +1,6 @@
+package com.routix.app;import org.junit.Test;import java.util.*;import static org.junit.Assert.*;
+public class RouteOptimizerTest{
+ @Test public void visitsEveryRequiredSegment(){List<RouteOptimizer.Segment> in=Arrays.asList(new RouteOptimizer.Segment("b",48,7.02,48,7.03),new RouteOptimizer.Segment("a",48,7,48,7.01));List<RouteOptimizer.Segment> out=RouteOptimizer.optimize(in,48,6.999);assertEquals(2,out.size());Set<String> ids=new HashSet<>();for(RouteOptimizer.Segment s:out)ids.add(s.id);assertEquals(new HashSet<>(Arrays.asList("a","b")),ids);}
+ @Test public void choosesUsefulDirection(){RouteOptimizer.Segment s=new RouteOptimizer.Segment("x",48,7.01,48,7);List<RouteOptimizer.Segment> out=RouteOptimizer.optimize(Collections.singletonList(s),48,6.999);assertEquals(7,out.get(0).aLon,.00001);}
+ @Test public void optimizationReducesSimpleDeadhead(){List<RouteOptimizer.Segment> in=Arrays.asList(new RouteOptimizer.Segment("far",48,7.03,48,7.04),new RouteOptimizer.Segment("near",48,7,48,7.01));List<RouteOptimizer.Segment> out=RouteOptimizer.optimize(in,48,6.999);assertTrue(RouteOptimizer.deadhead(out,48,6.999)<=RouteOptimizer.deadhead(in,48,6.999));}
+}
