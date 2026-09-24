@@ -1,0 +1,4 @@
+<resources>
+    <color name="routix_base">#1e1e2e</color><color name="routix_mantle">#181825</color><color name="routix_text">#cdd6f4</color><color name="routix_accent">#cba6f7</color>
+    <color name="routix_latte_base">#eff1f5</color><color name="routix_latte_text">#4c4f69</color><color name="routix_latte_accent">#8839ef</color>
+</resources>

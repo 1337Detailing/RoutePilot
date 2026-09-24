@@ -16,18 +16,19 @@ import java.util.*;
 
 /** Isolated rehearsal/comparison map: cannot move real navigation progress. */
 final class RouteStudyMap {
+    private final CatppuccinTheme.Tokens theme;
     private final RoutixActivity host;private final RouteStore store;private final RouteStore.Summary before,route;
     private final RouteComparison.Result comparison;private final List<PaperRoute.Step> oldStreets,streets;
     private final Handler handler=new Handler(Looper.getMainLooper());private final List<GeoPoint> points=new ArrayList<>();
     private final List<Polyline> oldLines=new ArrayList<>(),newLines=new ArrayList<>();
     private Dialog dialog;private MapView map;private Marker cursor;private TextView status;private Button play;
     private SeekBar seek;private double[] cumulative,eventDistance;private double position;private int speed=4;private boolean playing,dragging;private long lastTick;
-    RouteStudyMap(RoutixActivity h,RouteStore s,RouteStore.Summary a,RouteStore.Summary b,RouteComparison.Result c,List<PaperRoute.Step> oldStreets,List<PaperRoute.Step> streets){host=h;store=s;before=a;route=b==null?a:b;comparison=c;this.oldStreets=oldStreets;this.streets=streets;}
+    RouteStudyMap(RoutixActivity h,RouteStore s,RouteStore.Summary a,RouteStore.Summary b,RouteComparison.Result c,List<PaperRoute.Step> oldStreets,List<PaperRoute.Step> streets){host=h;theme=CatppuccinTheme.from(h);store=s;before=a;route=b==null?a:b;comparison=c;this.oldStreets=oldStreets;this.streets=streets;}
     private int dp(int n){return (int)(n*host.getResources().getDisplayMetrics().density+.5f);}
-    private TextView label(String s,int size){TextView t=new TextView(host);t.setText(s);t.setTextSize(size);t.setTextColor(Color.WHITE);t.setPadding(dp(12),dp(5),dp(12),dp(5));return t;}
-    private Button button(String s,Runnable action){Button b=new Button(host);b.setText(s);b.setAllCaps(false);b.setTextSize(12);b.setOnClickListener(v->action.run());return b;}
+    private TextView label(String s,int size){TextView t=new TextView(host);t.setText(s);t.setTextSize(size);t.setTextColor(theme.text);t.setPadding(dp(12),dp(5),dp(12),dp(5));return t;}
+    private Button button(String s,Runnable action){Button b=new Button(host);b.setText(s);b.setAllCaps(false);b.setTextSize(12);b.setTextColor(theme.onAccent());b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(theme.accent));b.setMinHeight(dp(52));b.setOnClickListener(v->action.run());return b;}
     void show(){
-        dialog=new Dialog(host,android.R.style.Theme_Material_NoActionBar);LinearLayout panel=new LinearLayout(host);panel.setOrientation(LinearLayout.VERTICAL);panel.setBackgroundColor(Color.rgb(15,19,27));
+        dialog=new Dialog(host,CatppuccinTheme.activityStyle(host.getSharedPreferences("routix",0)));LinearLayout panel=new LinearLayout(host);panel.setOrientation(LinearLayout.VERTICAL);panel.setBackgroundColor(theme.base);
         LinearLayout heading=new LinearLayout(host);heading.setGravity(Gravity.CENTER_VERTICAL);heading.addView(label(comparison==null?"Reconnaissance":"Comparaison",21),new LinearLayout.LayoutParams(0,-2,1));heading.addView(button("Fermer",this::close));panel.addView(heading);
         panel.addView(label(comparison==null?store.displayName(route.file):store.displayName(before.file)+" → "+store.displayName(route.file),14));
         map=new MapView(host);map.setMultiTouchControls(true);map.setTilesScaledToDpi(true);map.getController().setZoom(17.0);panel.addView(map,new LinearLayout.LayoutParams(-1,0,1));
@@ -41,7 +42,7 @@ final class RouteStudyMap {
     private void buildComparison(LinearLayout panel){
         addComparisonLines(comparison.before,true,oldLines);addComparisonLines(comparison.after,false,newLines);
         status.setText(String.format(Locale.FRANCE,"Vert : +%.0f m · Rouge : −%.0f m\nOrange : %.0f m en sens opposé%s\nComparaison géométrique indicative (tolérance 30 m). Les passages répétés peuvent être ambigus.",comparison.addedM,comparison.removedM,comparison.reversedM,comparison.orderChanged?" · ordre différent détecté":""));
-        LinearLayout toggles=new LinearLayout(host);for(boolean old:new boolean[]{true,false}){CheckBox box=new CheckBox(host);box.setText(old?"Référence":"Comparée");box.setTextColor(Color.WHITE);box.setChecked(true);box.setOnCheckedChangeListener((v,on)->{for(Polyline l:old?oldLines:newLines)l.setEnabled(on);if(map!=null)map.invalidate();});toggles.addView(box,new LinearLayout.LayoutParams(0,-2,1));}panel.addView(toggles);
+        LinearLayout toggles=new LinearLayout(host);for(boolean old:new boolean[]{true,false}){CheckBox box=new CheckBox(host);box.setText(old?"Référence":"Comparée");box.setTextColor(theme.text);box.setChecked(true);box.setOnCheckedChangeListener((v,on)->{for(Polyline l:old?oldLines:newLines)l.setEnabled(on);if(map!=null)map.invalidate();});toggles.addView(box,new LinearLayout.LayoutParams(0,-2,1));}panel.addView(toggles);
         Set<String> changed=new LinkedHashSet<>();changedNames(before,comparison.before,oldStreets,"Retirée : ",changed);changedNames(route,comparison.after,streets,"Modifiée : ",changed);
         ScrollView scroll=new ScrollView(host);TextView names=label(changed.isEmpty()?"Prépare les noms de rues dans les outils de chaque tournée pour identifier les portions colorées.":android.text.TextUtils.join("\n",changed),13);scroll.addView(names);panel.addView(scroll,new LinearLayout.LayoutParams(-1,dp(80)));
     }
@@ -54,9 +55,9 @@ final class RouteStudyMap {
         for(RouteComparison.Segment s:segments){int k=s.kind;if(k!=kind&&!run.isEmpty()){out.add(line(run,color(kind,old)));run=new ArrayList<>();}if(run.isEmpty())run.add(new GeoPoint(s.a.lat,s.a.lon));run.add(new GeoPoint(s.b.lat,s.b.lon));kind=k;}
         if(!run.isEmpty())out.add(line(run,color(kind,old)));
     }
-    private int color(int kind,boolean old){return kind==RouteComparison.ADDED?Color.rgb(48,209,88):kind==RouteComparison.REMOVED?Color.rgb(255,69,58):kind==RouteComparison.REVERSED?Color.rgb(255,159,10):old?Color.GRAY:Color.rgb(45,140,255);}
+    private int color(int kind,boolean old){return kind==RouteComparison.ADDED?theme.green:kind==RouteComparison.REMOVED?theme.red:kind==RouteComparison.REVERSED?theme.peach:old?theme.overlay1:theme.blue;}
     private void buildPlayback(LinearLayout panel){
-        line(points,Color.rgb(10,132,255));RouteArrowsOverlay arrows=new RouteArrowsOverlay();arrows.setPoints(points);map.getOverlays().add(arrows);
+        line(points,theme.accent);RouteArrowsOverlay arrows=new RouteArrowsOverlay();arrows.setPoints(points);map.getOverlays().add(arrows);
         cumulative=new double[route.points.size()];for(int i=1;i<cumulative.length;i++)cumulative[i]=cumulative[i-1]+RouteComparison.distance(route.points.get(i-1),route.points.get(i));
         eventDistance=new double[route.events.size()];
         for(int j=0;j<route.events.size();j++){RouteStore.Event e=route.events.get(j);int nearest=0;double best=Double.MAX_VALUE;for(int i=0;i<route.points.size();i++){RouteStore.Point p=route.points.get(i);double d=e.time>0&&p.time>0?Math.abs((double)e.time-p.time):RouteComparison.distance(p,new RouteStore.Point(e.lat,e.lon,0,0));if(d<best){best=d;nearest=i;}}eventDistance[j]=cumulative[nearest];Marker m=new Marker(map);m.setPosition(new GeoPoint(e.lat,e.lon));m.setTitle(e.label);map.getOverlays().add(m);}

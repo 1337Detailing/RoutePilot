@@ -63,7 +63,7 @@ public final class TrackingService extends Service implements LocationListener {
         try{promote();if(ready)subscribe();return START_STICKY;}catch(RuntimeException e){DiagnosticLog.error("foreground start",e);stopSelf();return START_NOT_STICKY;}
     }
     private void promote(){if(foreground)return;Intent open=new Intent(this,RoutixActivity.class);PendingIntent pending=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification n=new NotificationCompat.Builder(this,"tracking").setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("Routix • tournée active").setContentText("Suivi GPS adaptatif actif. Toucher pour reprendre.").setContentIntent(pending).setOngoing(true).setOnlyAlertOnce(true).build();
+        Notification n=new NotificationCompat.Builder(this,"tracking").setSmallIcon(R.drawable.ic_tracking).setColor(CatppuccinTheme.from(this).accent).setContentTitle("Routix · tournée active").setContentText("Suivi GPS adaptatif actif. Toucher pour reprendre.").setContentIntent(pending).setOngoing(true).setOnlyAlertOnce(true).build();
         if(Build.VERSION.SDK_INT>=29)startForeground(71,n,android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);else startForeground(71,n);foreground=true;
     }
     private boolean activate(){try{ContextCompat.startForegroundService(this,new Intent(this,TrackingService.class));promote();subscribe();return subscribed;}catch(RuntimeException ex){DiagnosticLog.error("tracking activation",ex);return false;}}

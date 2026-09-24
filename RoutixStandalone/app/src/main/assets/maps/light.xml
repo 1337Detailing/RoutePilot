@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<rendertheme xmlns="http://mapsforge.org/renderTheme" version="1" map-background="#f5f3ee">
- <rule e="way" k="landuse|natural|leisure" v="forest|wood|grass|park|meadow"><area fill="#dbead6" /></rule>
- <rule e="way" k="natural" v="water"><area fill="#aad8ec" /></rule>
- <rule e="way" k="waterway" v="*"><line stroke="#aad8ec" stroke-width="2" /></rule>
- <rule e="way" k="building" v="*" zoom-min="14"><area fill="#e6e2dc" /></rule>
- <rule e="way" k="highway" v="*"><line stroke="#d0ccd0" stroke-width="5" /><line stroke="#ffffff" stroke-width="3.5" /><rule e="way" k="name" v="*" zoom-min="14"><pathText k="name" font-size="12" fill="#353342" stroke="#f5f3ee" stroke-width="2" /></rule></rule>
- <rule e="node" k="place" v="city|town|village"><caption k="name" font-size="15" fill="#353342" stroke="#f5f3ee" stroke-width="2" /></rule>
+<rendertheme xmlns="http://mapsforge.org/renderTheme" version="1" map-background="{{base}}">
+ <rule e="way" k="landuse|natural|leisure" v="forest|wood|grass|park|meadow"><area fill="{{park}}" /></rule>
+ <rule e="way" k="natural" v="water"><area fill="{{water}}" /></rule>
+ <rule e="way" k="waterway" v="*"><line stroke="{{water}}" stroke-width="2" /></rule>
+ <rule e="way" k="building" v="*" zoom-min="14"><area fill="{{building}}" /></rule>
+ <rule e="way" k="highway" v="*"><line stroke="{{outline}}" stroke-width="5" /><line stroke="{{road}}" stroke-width="3.5" /><rule e="way" k="name" v="*" zoom-min="14"><pathText k="name" font-size="12" fill="{{text}}" stroke="{{base}}" stroke-width="2" /></rule></rule>
+ <rule e="node" k="place" v="city|town|village"><caption k="name" font-size="15" fill="{{text}}" stroke="{{base}}" stroke-width="2" /></rule>
 </rendertheme>

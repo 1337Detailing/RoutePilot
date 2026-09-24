@@ -21,6 +21,7 @@ final class RouteArrowsOverlay extends Overlay {
     void setPoints(List<GeoPoint> points){this.points=points;}
     @Override public void draw(Canvas canvas,MapView map,boolean shadow){
         if(shadow||points.size()<2)return;
+        CatppuccinTheme.Tokens theme=CatppuccinTheme.from(map.getContext());
         float density=map.getResources().getDisplayMetrics().density;
         double spacing=42*density,next=20*density;
         Point a=new Point(),b=new Point();map.getProjection().toPixels(points.get(0),a);
@@ -47,8 +48,8 @@ final class RouteArrowsOverlay extends Overlay {
                         float back=12*density,wing=8*density;arrow.reset();
                         arrow.moveTo(x-(float)ux*back-(float)uy*wing,y-(float)uy*back+(float)ux*wing);
                         arrow.lineTo(x,y);arrow.lineTo(x-(float)ux*back+(float)uy*wing,y-(float)uy*back-(float)ux*wing);
-                        paint.setColor(Color.rgb(5,12,25));paint.setStrokeWidth(8*density);canvas.drawPath(arrow,paint);
-                        paint.setColor(Color.WHITE);paint.setStrokeWidth(4*density);canvas.drawPath(arrow,paint);
+                        paint.setColor(theme.crust);paint.setStrokeWidth(8*density);canvas.drawPath(arrow,paint);
+                        paint.setColor(theme.text);paint.setStrokeWidth(4*density);canvas.drawPath(arrow,paint);
                     }
                     next+=spacing;
                 }

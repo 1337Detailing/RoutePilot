@@ -11,16 +11,17 @@ import java.util.List;
 
 /** Tiny, non-interactive route thumbnail for the route library. */
 final class RoutePreviewView extends View {
+    private final CatppuccinTheme.Tokens theme;
     private final Paint line=new Paint(Paint.ANTI_ALIAS_FLAG),dot=new Paint(Paint.ANTI_ALIAS_FLAG);
     private List<RouteStore.Point> points=Collections.emptyList();
 
-    RoutePreviewView(Context context){super(context);setWillNotDraw(false);}
+    RoutePreviewView(Context context){super(context);theme=CatppuccinTheme.from(context);setWillNotDraw(false);}
     void setPoints(List<RouteStore.Point> value){points=value==null?Collections.emptyList():value;invalidate();}
 
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
         int w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
-        canvas.drawColor(Color.rgb(24,24,37));
+        canvas.drawColor(theme.mantle);
         if(points.size()<2)return;
         double minLat=Double.POSITIVE_INFINITY,maxLat=Double.NEGATIVE_INFINITY,minLon=Double.POSITIVE_INFINITY,maxLon=Double.NEGATIVE_INFINITY;
         for(RouteStore.Point p:points){minLat=Math.min(minLat,p.lat);maxLat=Math.max(maxLat,p.lat);minLon=Math.min(minLon,p.lon);maxLon=Math.max(maxLon,p.lon);}
@@ -36,10 +37,10 @@ final class RoutePreviewView extends View {
         }
         RouteStore.Point last=points.get(points.size()-1);path.lineTo((float)(ox+(last.lon-minLon)*scale),(float)(oy+(maxLat-last.lat)*scale));
         line.setStyle(Paint.Style.STROKE);line.setStrokeCap(Paint.Cap.ROUND);line.setStrokeJoin(Paint.Join.ROUND);
-        line.setColor(Color.rgb(17,17,27));line.setStrokeWidth(getResources().getDisplayMetrics().density*8);canvas.drawPath(path,line);
-        line.setColor(Color.rgb(137,180,250));line.setStrokeWidth(getResources().getDisplayMetrics().density*4);canvas.drawPath(path,line);
+        line.setColor(theme.crust);line.setStrokeWidth(getResources().getDisplayMetrics().density*8);canvas.drawPath(path,line);
+        line.setColor(theme.accent);line.setStrokeWidth(getResources().getDisplayMetrics().density*4);canvas.drawPath(path,line);
         RouteStore.Point first=points.get(0);
-        dot.setColor(Color.rgb(166,227,161));canvas.drawCircle((float)(ox+(first.lon-minLon)*scale),(float)(oy+(maxLat-first.lat)*scale),getResources().getDisplayMetrics().density*4,dot);
-        dot.setColor(Color.rgb(243,139,168));canvas.drawCircle((float)(ox+(last.lon-minLon)*scale),(float)(oy+(maxLat-last.lat)*scale),getResources().getDisplayMetrics().density*4,dot);
+        dot.setColor(theme.green);canvas.drawCircle((float)(ox+(first.lon-minLon)*scale),(float)(oy+(maxLat-first.lat)*scale),getResources().getDisplayMetrics().density*4,dot);
+        dot.setColor(theme.red);canvas.drawCircle((float)(ox+(last.lon-minLon)*scale),(float)(oy+(maxLat-last.lat)*scale),getResources().getDisplayMetrics().density*4,dot);
     }
 }

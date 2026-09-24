@@ -22,6 +22,9 @@ final class CatppuccinTheme {
             case "rosewater":return rosewater;case "flamingo":return flamingo;case "pink":return pink;case "red":return red;case "maroon":return maroon;
             case "peach":return peach;case "yellow":return yellow;case "green":return green;case "teal":return teal;case "sky":return sky;
             case "sapphire":return sapphire;case "blue":return blue;case "lavender":return lavender;default:return mauve;}}
+        int muted(){return light()?subtext1:subtext0;}
+        int onAccent(){return ink(accent);}
+        int tint(int color){return androidx.core.graphics.ColorUtils.blendARGB(base,color,.16f);}
         boolean light(){return "latte".equals(flavor);}
     }
     private static int c(String h){return Color.parseColor(h);}
@@ -37,5 +40,12 @@ final class CatppuccinTheme {
     static void setAccent(SharedPreferences p,String accent){p.edit().putString("accent_name",accent).apply();}
     static String[] flavors(){return new String[]{"Mocha","Macchiato","Frappé","Latte"};}
     static String[] accents(){return new String[]{"Mauve","Pink","Blue","Sapphire","Sky","Teal","Green","Yellow","Peach","Red","Maroon","Lavender","Flamingo","Rosewater"};}
-    static GradientDrawable surface(Tokens t,int color,int radiusDp,float density){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(radiusDp*density);return g;}
+    static GradientDrawable surface(Tokens t,int color,int radiusDp,float density){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(radiusDp*density);if(color==t.base||color==t.mantle||color==t.surface0)g.setStroke(Math.max(1,Math.round(density)),t.surface1);return g;}
+
+    static Tokens from(android.content.Context context){return from(context.getSharedPreferences("routix",0));}
+    static Tokens flavor(String flavor,String accent){return new Tokens(flavor,P.get(flavor),accent);}
+    static int ink(int color){int dark=c("#000000"),light=c("#ffffff");return androidx.core.graphics.ColorUtils.calculateContrast(dark,color)>=androidx.core.graphics.ColorUtils.calculateContrast(light,color)?dark:light;}
+    static boolean motion(SharedPreferences prefs){return prefs.getBoolean("animations",true)&&android.animation.ValueAnimator.areAnimatorsEnabled();}
+    static int activityStyle(SharedPreferences prefs){return from(prefs).light()?R.style.Theme_Routix_Latte:R.style.Theme_Routix;}
+    static void systemBars(android.app.Activity a,Tokens t){a.getWindow().setStatusBarColor(t.base);a.getWindow().setNavigationBarColor(t.base);androidx.core.view.WindowInsetsControllerCompat c=androidx.core.view.WindowCompat.getInsetsController(a.getWindow(),a.getWindow().getDecorView());c.setAppearanceLightStatusBars(t.light());c.setAppearanceLightNavigationBars(t.light());}
 }

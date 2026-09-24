@@ -1,0 +1,4 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+<path android:fillColor="@color/routix_text" android:pathData="M32,72 L32,39 L41,39 L41,45 C44,39 49,37 57,38 L57,48 C47,46 42,51 42,60 L42,72 Z"/>
+<path android:fillColor="@color/routix_accent" android:pathData="M66,62 A5,5 0,1 1,66 72 A5,5 0,1 1,66 62"/>
+</vector>
