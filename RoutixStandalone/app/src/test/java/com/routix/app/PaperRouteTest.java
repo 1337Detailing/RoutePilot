@@ -16,4 +16,9 @@ public class PaperRouteTest {
         List<PaperRoute.Point> pts=new ArrayList<>();for(int i=0;i<100;i++)pts.add(p(i*100,0));List<PaperRoute.Step> steps=new ArrayList<>();for(int i=0;i<60;i++)steps.add(new PaperRoute.Step(Math.min(i,98),i+1,"Rue "+i));
         List<int[]> pages=PaperRoute.sheets(pts,steps);assertTrue(pages.size()>=1);assertTrue(pages.size()<=3);assertEquals(0,pages.get(0)[0]);assertEquals(99,pages.get(pages.size()-1)[1]);for(int i=1;i<pages.size();i++)assertEquals(pages.get(i-1)[1],pages.get(i)[0]);
     }
+    @Test public void compactPagesPreferNearbyStreetTransitions(){
+        List<PaperRoute.Point> pts=new ArrayList<>();for(int i=0;i<=60;i++)pts.add(p(i*100,0));
+        List<PaperRoute.Step> steps=Arrays.asList(new PaperRoute.Step(0,1,"A"),new PaperRoute.Step(18,2,"B"),new PaperRoute.Step(39,3,"C"),new PaperRoute.Step(58,4,"D"));
+        List<int[]> pages=PaperRoute.sheets(pts,steps);assertEquals(3,pages.size());assertEquals(18,pages.get(0)[1]);assertEquals(39,pages.get(1)[1]);assertEquals(60,pages.get(2)[1]);
+    }
 }
