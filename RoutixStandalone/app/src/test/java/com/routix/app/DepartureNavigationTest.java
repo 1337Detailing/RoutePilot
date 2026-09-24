@@ -4,8 +4,11 @@ import android.location.Location;
 import android.os.SystemClock;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.osmdroid.util.GeoPoint;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import java.util.Arrays;
+import java.util.List;
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class) @Config(sdk=35)
@@ -24,5 +27,23 @@ public class DepartureNavigationTest {
         RouteStore.Point far=new RouteStore.Point(48.95,7.60,0,5);
         assertTrue(DepartureNavigation.plausible(here,near));
         assertFalse(DepartureNavigation.plausible(here,far));
+    }
+    @Test public void farOffRouteFixCannotJumpApproachProgress(){
+        List<GeoPoint> route=Arrays.asList(
+                new GeoPoint(48.7500,7.9500),
+                new GeoPoint(48.7510,7.9500),
+                new GeoPoint(48.7520,7.9500),
+                new GeoPoint(48.7530,7.9500));
+        Location farAway=fix(48.7600,7.9600,500);
+        assertEquals(1,DepartureNavigation.advanceIndex(route,1,farAway));
+    }
+    @Test public void nearbyFixStillAdvancesApproachProgress(){
+        List<GeoPoint> route=Arrays.asList(
+                new GeoPoint(48.7500,7.9500),
+                new GeoPoint(48.7510,7.9500),
+                new GeoPoint(48.7520,7.9500),
+                new GeoPoint(48.7530,7.9500));
+        Location nearby=fix(48.75205,7.95002,500);
+        assertEquals(2,DepartureNavigation.advanceIndex(route,1,nearby));
     }
 }
