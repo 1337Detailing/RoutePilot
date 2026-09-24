@@ -23,7 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Street-labelled paper atlas and PNG export of the original GPS trace. */
 final class PrintablePlan {
-    private static final int W=1240,H=1754,BLUE=Color.rgb(0,75,165);\n    private static final String[] OVERPASS_ENDPOINTS={"https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.nchc.org.tw/api/interpreter"};
+    private static final int W=1240,H=1754,BLUE=Color.rgb(0,75,165);
+    private static final String[] OVERPASS_ENDPOINTS={"https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.nchc.org.tw/api/interpreter"};
     private final Activity activity;
     private final RouteStore.Summary route;
     private final String title;
