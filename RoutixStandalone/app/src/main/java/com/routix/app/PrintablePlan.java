@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Street-labelled paper atlas and PNG export of the original GPS trace. */
 final class PrintablePlan {
-    private static final int W=1240,H=1754,BLUE=Color.rgb(0,75,165);
+    private static final int W=1240,H=1754,BLUE=Color.rgb(0,75,165);\n    private static final String[] OVERPASS_ENDPOINTS={"https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.nchc.org.tw/api/interpreter"};
     private final Activity activity;
     private final RouteStore.Summary route;
     private final String title;
@@ -41,7 +41,7 @@ final class PrintablePlan {
     static void open(Activity a,RouteStore.Summary r,String title){
         if(r.points.size()<2){Toast.makeText(a,"Pas assez de points GPS",Toast.LENGTH_LONG).show();return;}
         new RoutixDialogs.Builder(a).setTitle("Plan imprimable Routix")
-            .setMessage("Créer des images A4 et un PDF avec les rues numérotées, dans l’ordre de la tournée.\n\nPour trouver les noms, la zone géographique du parcours est envoyée au service OpenStreetMap Overpass. Connexion nécessaire lors de la première génération. Les fichiers restent sur ce téléphone jusqu’au partage.")
+            .setMessage("Créer des images A4 et un PDF avec les rues numérotées, dans l’ordre de la tournée.\n\nPour trouver les noms, la zone géographique du parcours est envoyée au service OpenStreetMap Overpass. Routix réutilise son cache local et essaie plusieurs sources OpenStreetMap si nécessaire. Connexion nécessaire uniquement quand les rues de cette zone ne sont pas encore en cache. Les fichiers restent sur ce téléphone jusqu’au partage.")
             .setNegativeButton("Annuler",null).setPositiveButton("Générer le plan",(d,w)->new PrintablePlan(a,r,title).start()).show();
     }
     private boolean active(){return !cancelled.get()&&!activity.isFinishing()&&!activity.isDestroyed();}
@@ -104,34 +104,40 @@ final class PrintablePlan {
         }finally{doc.close();}
     }
     private List<PaperRoute.Road> readRoads(String bbox) throws Exception {
-        File cacheDir=new File(activity.getCacheDir(),"paper-road-data");cacheDir.mkdirs();
+        File cacheDir=new File(activity.getFilesDir(),"paper-road-data");cacheDir.mkdirs();
         String hash=android.util.Base64.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(bbox.getBytes(StandardCharsets.UTF_8)),android.util.Base64.NO_WRAP|android.util.Base64.URL_SAFE);
         File cached=new File(cacheDir,hash+".json");String json=null;
-        if(cached.exists()&&System.currentTimeMillis()-cached.lastModified()<7L*86400000)json=new String(Files.readAllBytes(cached.toPath()),StandardCharsets.UTF_8);
+        // Street data is durable: OSM road geometry remains useful offline even when old.
+        if(cached.exists())try{json=new String(Files.readAllBytes(cached.toPath()),StandardCharsets.UTF_8);validateRoadJson(json);}catch(Exception ignored){json=null;}
         if(json==null){
-            String query="[out:json][timeout:40];way[highway][highway!~\"^(footway|cycleway|steps|path|bridleway|proposed|construction)$\"]("+bbox+");out geom;";
-            HttpURLConnection connection=(HttpURLConnection)new URL("https://overpass-api.de/api/interpreter").openConnection();
-            connection.setRequestMethod("POST");connection.setDoOutput(true);connection.setConnectTimeout(15000);connection.setReadTimeout(55000);
-            connection.setRequestProperty("User-Agent","Routix/1.1 printable-plan");connection.setRequestProperty("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
-            try{
-                try(OutputStream out=connection.getOutputStream()){out.write(("data="+URLEncoder.encode(query,"UTF-8")).getBytes(StandardCharsets.UTF_8));}
-                if(connection.getResponseCode()!=200)throw new IOException("Le service de noms de rues est indisponible. Réessaie plus tard.");
-                ByteArrayOutputStream bytes=new ByteArrayOutputStream();
-                try(InputStream in=connection.getInputStream()){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1){check();bytes.write(buffer,0,n);if(bytes.size()>24*1024*1024)throw new IOException("Trop de données cartographiques pour cette zone.");}}
-                json=bytes.toString("UTF-8");
-            }finally{connection.disconnect();}
+            String query="[out:json][timeout:35];way[highway][highway!~\"^(footway|cycleway|steps|path|bridleway|proposed|construction)$\"]("+bbox+");out geom;";
+            ArrayList<String> failures=new ArrayList<>();
+            for(String endpoint:OVERPASS_ENDPOINTS){
+                check();HttpURLConnection connection=null;
+                try{
+                    connection=(HttpURLConnection)new URL(endpoint).openConnection();connection.setRequestMethod("POST");connection.setDoOutput(true);connection.setConnectTimeout(10000);connection.setReadTimeout(45000);
+                    connection.setRequestProperty("User-Agent","Routix/2.1 printable-plan");connection.setRequestProperty("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
+                    try(OutputStream out=connection.getOutputStream()){out.write(("data="+URLEncoder.encode(query,"UTF-8")).getBytes(StandardCharsets.UTF_8));}
+                    int code=connection.getResponseCode();if(code!=200){failures.add(code+" "+new URL(endpoint).getHost());continue;}
+                    ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(InputStream in=connection.getInputStream()){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1){check();bytes.write(buffer,0,n);if(bytes.size()>24*1024*1024)throw new IOException("Trop de données cartographiques pour cette zone.");}}
+                    String candidate=bytes.toString("UTF-8");validateRoadJson(candidate);json=candidate;break;
+                }catch(Exception e){failures.add((connection==null?"réseau":new URL(endpoint).getHost())+": "+e.getClass().getSimpleName());}
+                finally{if(connection!=null)connection.disconnect();}
+            }
+            if(json==null)throw new IOException("Impossible de récupérer les rues. Vérifie la connexion puis réessaie. Routix a testé plusieurs serveurs cartographiques.");
+            RouteArchive.atomic(cached,json.getBytes(StandardCharsets.UTF_8));
         }
-        JSONObject root=new JSONObject(json);
-        if(root.has("remark"))throw new IOException("Le service cartographique a renvoyé un résultat incomplet. Réessaie plus tard.");
-        List<PaperRoute.Road> result=new ArrayList<>();JSONArray elements=root.getJSONArray("elements");
-        for(int i=0;i<elements.length();i++){
-            JSONObject e=elements.getJSONObject(i),tags=e.optJSONObject("tags");JSONArray geometry=e.optJSONArray("geometry");if(tags==null||geometry==null)continue;
-            List<PaperRoute.Point> line=new ArrayList<>();for(int j=0;j<geometry.length();j++){JSONObject p=geometry.getJSONObject(j);line.add(project(p.getDouble("lat"),p.getDouble("lon")));}
-            if(line.size()>1)result.add(new PaperRoute.Road(e.optString("id"),tags.optString("name",tags.optString("ref","")),line));
-        }
-        if(result.isEmpty())throw new IOException("Aucune rue trouvée dans cette zone. Aucun plan incomplet n’a été exporté.");
-        try(OutputStream out=new FileOutputStream(cached)){out.write(json.getBytes(StandardCharsets.UTF_8));}
-        return result;
+        return parseRoads(json);
+    }
+    private void validateRoadJson(String json)throws Exception{
+        JSONObject root=new JSONObject(json);if(root.has("remark"))throw new IOException("Réponse cartographique incomplète");
+        JSONArray elements=root.optJSONArray("elements");if(elements==null||elements.length()==0)throw new IOException("Aucune rue trouvée");
+    }
+    private List<PaperRoute.Road> parseRoads(String json)throws Exception{
+        JSONObject root=new JSONObject(json);List<PaperRoute.Road> result=new ArrayList<>();JSONArray elements=root.getJSONArray("elements");
+        for(int i=0;i<elements.length();i++){JSONObject e=elements.getJSONObject(i),tags=e.optJSONObject("tags");JSONArray geometry=e.optJSONArray("geometry");if(tags==null||geometry==null)continue;List<PaperRoute.Point> line=new ArrayList<>();
+            for(int j=0;j<geometry.length();j++){JSONObject p=geometry.getJSONObject(j);line.add(project(p.getDouble("lat"),p.getDouble("lon")));}if(line.size()>1)result.add(new PaperRoute.Road(e.optString("id"),tags.optString("name",tags.optString("ref","")),line));}
+        if(result.isEmpty())throw new IOException("Aucune rue carrossable trouvée dans cette zone.");return result;
     }
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private void text(Canvas c,String text,float x,float y,float size,int color){paint.setStyle(Paint.Style.FILL);paint.setColor(color);paint.setTextSize(size);paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));c.drawText(text,x,y,paint);}
