@@ -24,10 +24,10 @@ final class ModernMapController {
     private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
     private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList(),approach=Collections.emptyList();private Location location,headingFix;
     private long routeSignature=Long.MIN_VALUE,approachSignature=Long.MIN_VALUE,lastCameraMs;
-    private boolean follow=true,heading=true,destroyed,visible=true,bearingReady,guidingMode,pulseHigh;
+    private boolean follow=true,heading=true,destroyed,visible=true,bearingReady,guidingMode;
     private double bearing;private String styleUri;private float actionDistance=Float.MAX_VALUE;
     private List<RouteStore.Event> events=Collections.emptyList();private int eventsSignature=Integer.MIN_VALUE;
-    private final Bitmap userIcon;private final Handler main=new Handler(Looper.getMainLooper());
+    private final Bitmap userIcon;
 
     ModernMapController(Activity activity,FrameLayout root,Bitmap icon,Bundle state){
         prefs=activity.getSharedPreferences("routix",0);userIcon=icon;MapLibre.getInstance(activity);
@@ -36,7 +36,6 @@ final class ModernMapController {
         view.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)follow=false;return false;});
         view.addOnDidFailLoadingMapListener(error->DiagnosticLog.info("map style load failed: "+error));
         view.getMapAsync(m->{if(destroyed)return;map=m;map.getUiSettings().setAttributionGravity(Gravity.TOP|Gravity.LEFT);map.getUiSettings().setLogoEnabled(false);refreshStyle();});
-
     }
 
     void refreshStyle(){if(map==null||destroyed)return;String requested=MapStyles.uri(prefs);styleUri=requested;style=null;
@@ -54,7 +53,7 @@ final class ModernMapController {
             s.addLayer(new SymbolLayer("approach-arrows-layer","approach-arrows").withProperties(symbolPlacement("line"),symbolSpacing(50f),iconImage("direction"),iconSize(.96f),iconAllowOverlap(false),iconKeepUpright(false),iconRotationAlignment("map"),iconOpacity(1f)));
             s.addLayer(new SymbolLayer("user","position").withProperties(iconImage("truck"),iconAllowOverlap(true),iconIgnorePlacement(true),iconSize(.80f)));
             s.addLayer(new CircleLayer("marker-dots","events").withProperties(circleColor(String.format(Locale.US,"#%06X",(0xFFFFFF&prefs.getInt("marker_color",ct.peach)))),circleRadius(6f),circleStrokeColor(hex(ct.mantle)),circleStrokeWidth(2f)));
-            s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(hex(ct.text)),textHaloColor(hex(ct.mantle)),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f})));
+            s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(hex(ct.text)),textHaloColor(hex(ct.mantle)),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f])));
             renderRoute();renderApproach();renderEvents();update(location,false,Float.MAX_VALUE);
         });
     }
@@ -105,22 +104,16 @@ final class ModernMapController {
         if(!follow)return;
         long now=SystemClock.elapsedRealtime();long throttle=prefs.getBoolean("battery_saver",true)?(moving?850:3500):450;if(now-lastCameraMs<throttle)return;lastCameraMs=now;
         double zoom=guiding?zoomFor(nextActionDistance):16.8;
-        CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(zoom).bearing(heading&&guiding&&bearingReady?bearing:0).tilt(guiding?30:0).build();
+        CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(zoom).bearing(heading&&bearingReady?bearing:0).tilt(guiding?30:0).build();
         map.easeCamera(CameraUpdateFactory.newCameraPosition(next),moving?460:700);
     }
     private double zoomFor(float meters){if(!Float.isFinite(meters))return 17.2;if(meters<55)return 18.45;if(meters<140)return 18.0;if(meters<320)return 17.55;if(meters<700)return 17.1;return 16.75;}
 
     void recenter(Location l,boolean guiding){follow=true;lastCameraMs=0;update(l,guiding,actionDistance);}
-    void heading(boolean enabled){
-        heading=enabled;follow=true;lastCameraMs=0;
-        if(map==null)return;
-        double target=enabled&&bearingReady?bearing:0;
-        map.easeCamera(CameraUpdateFactory.bearingTo(target),320);
-        if(location!=null)update(location,guidingMode,actionDistance);
-    }
+    void heading(boolean enabled){heading=enabled;follow=true;lastCameraMs=0;if(map==null)return;double target=enabled&&bearingReady?bearing:0;map.easeCamera(CameraUpdateFactory.bearingTo(target),320);if(location!=null)update(location,guidingMode,actionDistance);}
     void setVisible(boolean enabled){visible=enabled;view.setVisibility(enabled?View.VISIBLE:View.GONE);if(enabled){renderRoute();renderApproach();renderEvents();}}
     void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
     void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
     void onSaveInstanceState(Bundle state){view.onSaveInstanceState(state);}void onLowMemory(){view.onLowMemory();}
-    void onDestroy(){destroyed=true;main.removeCallbacksAndMessages(null);style=null;map=null;location=null;headingFix=null;route=Collections.emptyList();approach=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;approachSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
+    void onDestroy(){destroyed=true;style=null;map=null;location=null;headingFix=null;route=Collections.emptyList();approach=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;approachSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
 }
