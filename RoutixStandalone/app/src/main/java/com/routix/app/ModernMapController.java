@@ -94,12 +94,7 @@ final class ModernMapController {
         if(headingFix!=null){derivedDistance=headingFix.distanceTo(fix);derivedDt=fix.getTime()-headingFix.getTime();}
         boolean derivedMoving=accurate&&headingFix!=null&&derivedDt>0&&derivedDt<=10000&&derivedDistance>=4f;
         boolean moving=(fix.hasSpeed()&&fix.getSpeed()>.8f)||derivedMoving;
-        if(heading&&accurate){
-            double target=Double.NaN;
-            if(fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.8f)target=fix.getBearing();
-            else if(derivedMoving)target=headingFix.bearingTo(fix);
-            if(!Double.isNaN(target)){bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}
-        }
+        if(heading&&accurate){double target=Double.NaN;if(fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.8f)target=fix.getBearing();else if(derivedMoving)target=headingFix.bearingTo(fix);if(!Double.isNaN(target)){bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}}
         if(accurate&&(headingFix==null||derivedDt<=0||derivedDt>10000||derivedDistance>=4f))headingFix=new Location(fix);
         if(!follow)return;
         long now=SystemClock.elapsedRealtime();long throttle=prefs.getBoolean("battery_saver",true)?(moving?850:3500):450;if(now-lastCameraMs<throttle)return;lastCameraMs=now;
