@@ -17,6 +17,7 @@ import java.util.Locale;
 /** Lightweight in-app road route used only to reach the first point of a collection route. */
 final class DepartureNavigation {
     static final float MAX_APPROACH_DISTANCE_M=20_000f;
+    static final float MAX_ADVANCE_DISTANCE_M=120f;
     static final long MAX_FIX_AGE_MS=15_000;
     interface Callback { void ready(Result result); }
 
@@ -115,6 +116,10 @@ final class DepartureNavigation {
             Location.distanceBetween(fix.getLatitude(),fix.getLongitude(),p.getLatitude(),p.getLongitude(),d);
             if(d[0]<bestDistance){bestDistance=d[0];best=i;}
         }
+        // A stale approach route can otherwise snap hundreds of points forward simply because
+        // the current GPS fix happens to be marginally closer to a distant segment. Keep the
+        // current anchor until the vehicle is actually near the calculated road route.
+        if(bestDistance>MAX_ADVANCE_DISTANCE_M)return start;
         return Math.max(start,best);
     }
 
