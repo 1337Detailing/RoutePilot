@@ -21,6 +21,12 @@ public class DepartureNavigationTest {
         assertFalse(DepartureNavigation.isFreshFix(fix(48.75,7.95,DepartureNavigation.MAX_FIX_AGE_MS+1000)));
         assertTrue(DepartureNavigation.isFreshFix(fix(48.75,7.95,1000)));
     }
+    @Test public void invalidAccuracyCannotStartDepartureGuidance(){
+        Location nan=fix(48.75,7.95,1000);nan.setAccuracy(Float.NaN);
+        Location infinite=fix(48.75,7.95,1000);infinite.setAccuracy(Float.POSITIVE_INFINITY);
+        assertFalse(DepartureNavigation.isFreshFix(nan));
+        assertFalse(DepartureNavigation.isFreshFix(infinite));
+    }
     @Test public void implausiblyDistantStartIsRejected(){
         Location here=fix(48.77,7.86,1000);
         RouteStore.Point near=new RouteStore.Point(48.78,7.88,0,5);
