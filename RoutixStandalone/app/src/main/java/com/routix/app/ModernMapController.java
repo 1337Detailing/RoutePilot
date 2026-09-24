@@ -23,7 +23,7 @@ final class ModernMapController {
     private static final int MAX_ROUTE_RENDER_POINTS=6000,MAX_ARROW_RENDER_POINTS=1800;
     private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
     private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList(),approach=Collections.emptyList(),recordingRoute=Collections.emptyList();private Location location,headingFix;
-    private long routeSignature=Long.MIN_VALUE,approachSignature=Long.MIN_VALUE,recordingSignature=Long.MIN_VALUE,lastCameraMs;
+    private long routeSignature=Long.MIN_VALUE,approachSignature=Long.MIN_VALUE,recordingSignature=Long.MIN_VALUE,lastCameraMs,lastPositionFrameMs;\n    private Location visualLocation;
     private boolean follow=true,heading=true,destroyed,visible=true,bearingReady,guidingMode;
     private double bearing;private String styleUri;private float actionDistance=Float.MAX_VALUE;
     private List<RouteStore.Event> events=Collections.emptyList();private int eventsSignature=Integer.MIN_VALUE;
@@ -45,7 +45,37 @@ final class ModernMapController {
     private void renderApproach(){renderLine("approach","approach-arrows",approach,1300);}
     private void renderLine(String sourceId,String arrowsId,List<org.osmdroid.util.GeoPoint> input,double arrowHorizon){if(style==null||!style.isFullyLoaded())return;GeoJsonSource source=style.getSourceAs(sourceId);if(source==null)return;List<Point> p=new ArrayList<>();int stride=Math.max(1,(int)Math.ceil(input.size()/(double)MAX_ROUTE_RENDER_POINTS));for(int i=0;i<input.size();i+=stride){org.osmdroid.util.GeoPoint x=input.get(i);p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));}if(!input.isEmpty()&&((input.size()-1)%stride)!=0){org.osmdroid.util.GeoPoint x=input.get(input.size()-1);p.add(Point.fromLngLat(x.getLongitude(),x.getLatitude()));}int aheadEnd=0;double distance=0;for(int i=1;i<p.size();i++){float[] d=new float[1];Location.distanceBetween(p.get(i-1).latitude(),p.get(i-1).longitude(),p.get(i).latitude(),p.get(i).longitude(),d);distance+=d[0];aheadEnd=i;if(distance>arrowHorizon)break;}List<Point> ahead=new ArrayList<>();int aheadCount=aheadEnd+1,aheadStride=Math.max(1,(int)Math.ceil(aheadCount/(double)MAX_ARROW_RENDER_POINTS));for(int i=0;i<=aheadEnd&&i<p.size();i+=aheadStride)ahead.add(p.get(i));if(aheadEnd>0&&aheadEnd<p.size()&&(ahead.isEmpty()||ahead.get(ahead.size()-1)!=p.get(aheadEnd)))ahead.add(p.get(aheadEnd));GeoJsonSource arrows=arrowsId==null?null:style.getSourceAs(arrowsId);if(arrows!=null)arrows.setGeoJson(ahead.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(ahead))}));source.setGeoJson(p.size()<2?FeatureCollection.fromFeatures(new Feature[0]):FeatureCollection.fromFeatures(new Feature[]{Feature.fromGeometry(LineString.fromLngLats(p))}));}
     void update(Location fix,boolean guiding){update(fix,guiding,Float.MAX_VALUE);}
-    void update(Location fix,boolean guiding,float nextActionDistance){location=fix;guidingMode=guiding;actionDistance=nextActionDistance;if(!visible||map==null||style==null||fix==null||destroyed)return;if(!MapStyles.uri(prefs).equals(styleUri)){refreshStyle();return;}GeoJsonSource source=style.getSourceAs("position");if(source!=null)source.setGeoJson(Feature.fromGeometry(Point.fromLngLat(fix.getLongitude(),fix.getLatitude())));boolean accurate=!fix.hasAccuracy()||fix.getAccuracy()<35f;float derivedDistance=0f;long derivedDt=0L;if(headingFix!=null){derivedDistance=headingFix.distanceTo(fix);derivedDt=fix.getTime()-headingFix.getTime();}boolean derivedMoving=accurate&&headingFix!=null&&derivedDt>0&&derivedDt<=10000&&derivedDistance>=4f;boolean moving=(fix.hasSpeed()&&fix.getSpeed()>.8f)||derivedMoving;if(heading&&accurate){double target=Double.NaN;if(fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.8f)target=fix.getBearing();else if(derivedMoving)target=headingFix.bearingTo(fix);if(!Double.isNaN(target)){bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}}if(accurate&&(headingFix==null||derivedDt<=0||derivedDt>10000||derivedDistance>=4f))headingFix=new Location(fix);if(!follow)return;long now=SystemClock.elapsedRealtime();long throttle=prefs.getBoolean("battery_saver",true)?(moving?850:3500):450;if(now-lastCameraMs<throttle)return;lastCameraMs=now;double zoom=guiding?zoomFor(nextActionDistance):16.8;CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(fix.getLatitude(),fix.getLongitude())).zoom(zoom).bearing(heading&&bearingReady?bearing:0).tilt(guiding?30:0).build();map.easeCamera(CameraUpdateFactory.newCameraPosition(next),moving?460:700);}
+    void update(Location fix,boolean guiding,float nextActionDistance){
+        location=fix;guidingMode=guiding;actionDistance=nextActionDistance;if(!visible||map==null||style==null||fix==null||destroyed)return;
+        if(!MapStyles.uri(prefs).equals(styleUri)){refreshStyle();return;}
+        boolean accurate=!fix.hasAccuracy()||fix.getAccuracy()<35f;float derivedDistance=0f;long derivedDt=0L;
+        if(headingFix!=null){derivedDistance=headingFix.distanceTo(fix);derivedDt=fix.getTime()-headingFix.getTime();}
+        boolean derivedMoving=accurate&&headingFix!=null&&derivedDt>0&&derivedDt<=10000&&derivedDistance>=4f;
+        boolean moving=(fix.hasSpeed()&&fix.getSpeed()>.8f)||derivedMoving;
+        if(heading&&accurate){double target=Double.NaN;if(fix.hasBearing()&&fix.hasSpeed()&&fix.getSpeed()>.8f)target=fix.getBearing();else if(derivedMoving)target=headingFix.bearingTo(fix);if(!Double.isNaN(target)){bearing=bearingReady?MapStyles.smoothBearing(bearing,target):target;bearingReady=true;}}
+        if(accurate&&(headingFix==null||derivedDt<=0||derivedDt>10000||derivedDistance>=4f))headingFix=new Location(fix);
+        animatePosition(fix,moving);
+        if(!follow)return;
+        long now=SystemClock.elapsedRealtime();
+        // Camera updates overlap slightly with the GPS cadence: no stop/start sensation between fixes.
+        long throttle=prefs.getBoolean("battery_saver",true)?(moving?650:2600):350;if(now-lastCameraMs<throttle)return;lastCameraMs=now;
+        Location target=predict(fix,moving);double zoom=guiding?zoomFor(nextActionDistance):16.8;
+        CameraPosition next=new CameraPosition.Builder(map.getCameraPosition()).target(new LatLng(target.getLatitude(),target.getLongitude())).zoom(zoom).bearing(heading&&bearingReady?bearing:0).tilt(guiding?30:0).build();
+        map.easeCamera(CameraUpdateFactory.newCameraPosition(next),moving?(prefs.getBoolean("battery_saver",true)?900:650):700);
+    }
+    private void animatePosition(Location fix,boolean moving){
+        GeoJsonSource source=style==null?null:style.getSourceAs("position");if(source==null)return;
+        long now=SystemClock.elapsedRealtime();if(now-lastPositionFrameMs<90&&visualLocation!=null)return;lastPositionFrameMs=now;
+        if(visualLocation==null||visualLocation.distanceTo(fix)>80){visualLocation=new Location(fix);}
+        else{float speed=fix.hasSpeed()?fix.getSpeed():0f;float alpha=moving?(speed>12?.58f:.42f):.28f;visualLocation.setLatitude(visualLocation.getLatitude()+(fix.getLatitude()-visualLocation.getLatitude())*alpha);visualLocation.setLongitude(visualLocation.getLongitude()+(fix.getLongitude()-visualLocation.getLongitude())*alpha);visualLocation.setTime(fix.getTime());}
+        source.setGeoJson(Feature.fromGeometry(Point.fromLngLat(visualLocation.getLongitude(),visualLocation.getLatitude())));
+    }
+    private Location predict(Location fix,boolean moving){
+        Location out=new Location(fix);if(!moving||!fix.hasSpeed()||!bearingReady)return out;
+        // A small look-ahead hides GPS latency without changing recorded/guidance coordinates.
+        double meters=Math.min(18,Math.max(0,fix.getSpeed())*.65),r=6371000d,br=Math.toRadians(bearing),lat=Math.toRadians(fix.getLatitude());
+        out.setLatitude(fix.getLatitude()+Math.toDegrees(meters*Math.cos(br)/r));double cos=Math.max(.15,Math.cos(lat));out.setLongitude(fix.getLongitude()+Math.toDegrees(meters*Math.sin(br)/(r*cos)));return out;
+    }
     private double zoomFor(float meters){if(!Float.isFinite(meters))return 17.2;if(meters<55)return 18.45;if(meters<140)return 18.0;if(meters<320)return 17.55;if(meters<700)return 17.1;return 16.75;}
     void recenter(Location l,boolean guiding){follow=true;lastCameraMs=0;update(l,guiding,actionDistance);}
     void heading(boolean enabled){heading=enabled;follow=true;lastCameraMs=0;if(map==null)return;double target=enabled&&bearingReady?bearing:0;map.easeCamera(CameraUpdateFactory.bearingTo(target),320);if(location!=null)update(location,guidingMode,actionDistance);}
@@ -53,5 +83,5 @@ final class ModernMapController {
     void inset(int top){if(map!=null)map.getUiSettings().setAttributionMargins(12,top+8,0,0);}
     void onStart(){view.onStart();}void onResume(){view.onResume();}void onPause(){view.onPause();}void onStop(){view.onStop();}
     void onSaveInstanceState(Bundle state){view.onSaveInstanceState(state);}void onLowMemory(){view.onLowMemory();}
-    void onDestroy(){destroyed=true;style=null;map=null;location=null;headingFix=null;route=Collections.emptyList();approach=Collections.emptyList();recordingRoute=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;approachSignature=Long.MIN_VALUE;recordingSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
+    void onDestroy(){destroyed=true;style=null;map=null;location=null;headingFix=null;visualLocation=null;route=Collections.emptyList();approach=Collections.emptyList();recordingRoute=Collections.emptyList();events=Collections.emptyList();routeSignature=Long.MIN_VALUE;approachSignature=Long.MIN_VALUE;recordingSignature=Long.MIN_VALUE;eventsSignature=Integer.MIN_VALUE;view.onDestroy();if(view.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)view.getParent()).removeView(view);}
 }
