@@ -14,22 +14,47 @@ final class PaperRoute {
     static double distance(Point a,Point b){return Math.hypot(a.x-b.x,a.y-b.y);}
     static double segmentDistance(Point p,Point a,Point b){double dx=b.x-a.x,dy=b.y-a.y,d=dx*dx+dy*dy;double t=d==0?0:Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/d));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);}
 
+    static final class Candidate { final Road road; final double score,distance; Candidate(Road road,double score,double distance){this.road=road;this.score=score;this.distance=distance;} }
+
+    /**
+     * Local map matching for paper plans. It deliberately favours continuity:
+     * a GPS fix must provide meaningful evidence before Routix switches streets.
+     * This avoids rapid A/B/A oscillations at junctions and parallel roads.
+     */
     static List<Step> steps(List<Point> trace,List<Road> roads){
-        Map<String,List<Road>> grid=new HashMap<>();
-        for(Road road:roads)for(int j=1;j<road.points.size();j++){
-            Point a=road.points.get(j-1),b=road.points.get(j);Road segment=new Road(road.key,road.name,Arrays.asList(a,b));if(road.name.equals("Voie sans nom"))segment=new Road(road.key,"",Arrays.asList(a,b));
-            for(int x=(int)Math.floor((Math.min(a.x,b.x)-35)/100);x<=(int)Math.floor((Math.max(a.x,b.x)+35)/100);x++)for(int y=(int)Math.floor((Math.min(a.y,b.y)-35)/100);y<=(int)Math.floor((Math.max(a.y,b.y)+35)/100);y++)grid.computeIfAbsent(x+":"+y,k->new ArrayList<>()).add(segment);
-        }
-        List<Step> out=new ArrayList<>();String previous=null;
+        Map<String,List<Road>> grid=roadGrid(roads);List<Step> raw=new ArrayList<>();
+        String previous=null;Road previousRoad=null;int lastSwitch=-99;
         for(int i=0;i<trace.size();i++){
-            Point p=trace.get(i),before=trace.get(Math.max(0,i-1)),after=trace.get(Math.min(trace.size()-1,i+1));double ux=after.x-before.x,uy=after.y-before.y,len=Math.hypot(ux,uy);Road best=null;double score=Double.POSITIVE_INFINITY,second=Double.POSITIVE_INFINITY;
-            for(Road road:grid.getOrDefault((int)Math.floor(p.x/100)+":"+(int)Math.floor(p.y/100),Collections.emptyList())){
-                double roadScore=Double.POSITIVE_INFINITY;for(int j=1;j<road.points.size();j++){Point a=road.points.get(j-1),b=road.points.get(j);if(p.x<Math.min(a.x,b.x)-35||p.x>Math.max(a.x,b.x)+35||p.y<Math.min(a.y,b.y)-35||p.y>Math.max(a.y,b.y)+35)continue;double dist=segmentDistance(p,a,b);if(dist>35)continue;double vx=b.x-a.x,vy=b.y-a.y,vl=Math.hypot(vx,vy);double alignment=len<2||vl==0?1:Math.abs((ux*vx+uy*vy)/(len*vl));roadScore=Math.min(roadScore,dist+12*(1-alignment));}
-                if(roadScore<score){if(best!=null&&!road.key.equals(best.key))second=score;best=road;score=roadScore;}else if(best!=null&&!road.key.equals(best.key))second=Math.min(second,roadScore);
+            Point p=trace.get(i),before=trace.get(Math.max(0,i-2)),after=trace.get(Math.min(trace.size()-1,i+2));
+            double ux=after.x-before.x,uy=after.y-before.y,len=Math.hypot(ux,uy);
+            List<Candidate> candidates=candidates(p,ux,uy,len,grid);
+            Candidate best=candidates.isEmpty()?null:candidates.get(0),same=null;
+            if(previousRoad!=null)for(Candidate x:candidates)if(x.road.key.equals(previousRoad.key)){same=x;break;}
+            // Hysteresis: remain on the current road unless the alternative is clearly better.
+            if(same!=null&&best!=null&&!same.road.key.equals(best.road.key)){
+                double required=(i-lastSwitch<4?9:5);if(same.distance<=28&&best.score+required>=same.score)best=same;
             }
-            String key=best==null?"?":best.key;String label=best==null?"Rue non identifiée — vérifier le tracé":best.name;if(best!=null&&second-score<2)label+=" (à vérifier)";if(!key.equals(previous)){out.add(new Step(i,out.size()+1,label));previous=key;}
+            String key=best==null?"?":best.road.key;String label=best==null?"Rue non identifiée — vérifier le tracé":best.road.name;
+            if(best!=null&&candidates.size()>1){Candidate second=candidates.get(1);if(!second.road.key.equals(best.road.key)&&second.score-best.score<1.5)label+=" (à vérifier)";}
+            if(!key.equals(previous)){raw.add(new Step(i,0,label));previous=key;previousRoad=best==null?null:best.road;lastSwitch=i;}
         }
-        return out;
+        // Remove one-fix street flicker: A/B/A becomes A when B lasted only a tiny trace section.
+        List<Step> clean=new ArrayList<>(raw);
+        for(int i=1;i+1<clean.size();){Step a=clean.get(i-1),b=clean.get(i),d=clean.get(i+1);int span=d.index-b.index;
+            if(a.name.equals(d.name)&&span<=3){clean.remove(i);clean.remove(i);continue;}i++;}
+        List<Step> out=new ArrayList<>();for(Step x:clean)out.add(new Step(x.index,out.size()+1,x.name));return out;
+    }
+
+    private static Map<String,List<Road>> roadGrid(List<Road> roads){
+        Map<String,List<Road>> grid=new HashMap<>();for(Road road:roads)for(int j=1;j<road.points.size();j++){Point a=road.points.get(j-1),b=road.points.get(j);Road segment=new Road(road.key,road.name.equals("Voie sans nom")?"":road.name,Arrays.asList(a,b));
+            for(int x=(int)Math.floor((Math.min(a.x,b.x)-40)/100);x<=(int)Math.floor((Math.max(a.x,b.x)+40)/100);x++)for(int y=(int)Math.floor((Math.min(a.y,b.y)-40)/100);y<=(int)Math.floor((Math.max(a.y,b.y)+40)/100);y++)grid.computeIfAbsent(x+":"+y,k->new ArrayList<>()).add(segment);}return grid;
+    }
+    private static List<Candidate> candidates(Point p,double ux,double uy,double len,Map<String,List<Road>> grid){
+        Map<String,Candidate> unique=new HashMap<>();for(Road road:grid.getOrDefault((int)Math.floor(p.x/100)+":"+(int)Math.floor(p.y/100),Collections.emptyList())){
+            Point a=road.points.get(0),b=road.points.get(1);double dist=segmentDistance(p,a,b);if(dist>40)continue;double vx=b.x-a.x,vy=b.y-a.y,vl=Math.hypot(vx,vy);double alignment=len<3||vl==0?1:Math.abs((ux*vx+uy*vy)/(len*vl));
+            // Distance dominates; heading disambiguates parallel/crossing streets.
+            double score=dist+Math.min(16,16*(1-alignment));Candidate old=unique.get(road.key);if(old==null||score<old.score)unique.put(road.key,new Candidate(road,score,dist));
+        }List<Candidate> out=new ArrayList<>(unique.values());out.sort(Comparator.comparingDouble(x->x.score));return out;
     }
 
     /** Keeps paper plans readable and bounded to three complete sheets. */
