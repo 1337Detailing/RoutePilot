@@ -374,11 +374,12 @@ public class RoutixActivity extends AppCompatActivity {
             nextActionDistance=(float)distanceToApproachEnd(l);if(guideDistance!=null)guideDistance.setText(formatDistance(nextActionDistance)+"\nDÉPART");if(guideProgress!=null)guideProgress.setText("→\nAPPROCHE");
             if(guideCue!=null)guideCue.setText("↑  Rejoignez le départ\n"+formatDistance(nextActionDistance));
         }else{
-            if(guideDistance!=null)guideDistance.setText(formatDistance(state.remainingM)+"\nRESTANT");if(guideProgress!=null)guideProgress.setText(state.progressPercent+" %\nPROGRESSION");
+            if(guideDistance!=null)guideDistance.setText(formatDistance(state.remainingM)+"\nRESTANT");int coverage=tracker.guidanceCoverage==null?state.progressPercent:tracker.guidanceCoverage.percent();int missed=tracker.guidanceCoverage==null?0:tracker.guidanceCoverage.missedCountBefore(state.nearestIndex);if(guideProgress!=null)guideProgress.setText(coverage+" %\nCOUVERT"+(missed>0?" • "+missed+" À REVOIR":""));
             nextActionDistance=maneuver==null?Float.MAX_VALUE:maneuver.distanceM;
             if(guideCue!=null){
                 if(state.poorAccuracy)guideCue.setText("GPS imprécis • progression conservée");
                 else if(state.offRoute)guideCue.setText("↩  Rejoignez le tracé");
+                else if(missed>0&&missed<=3)guideCue.setText("⚠  "+missed+" portion"+(missed>1?"s":"")+" précédente"+(missed>1?"s":"")+" à revoir");
                 else if(state.finished)guideCue.setText("Tournée terminée");
                 else if(state.nextEvent!=null&&state.distanceToNextEventM<nextActionDistance)guideCue.setText("⚑  "+state.nextEvent.label+"\nDans "+formatDistance(state.distanceToNextEventM));
                 else if(maneuver!=null)guideCue.setText(maneuverGlyph(maneuver)+"  "+maneuver.instruction+"\nDans "+formatDistance(maneuver.distanceM));
