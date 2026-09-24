@@ -23,7 +23,8 @@ final class ModernMapController {
     private static final int MAX_ROUTE_RENDER_POINTS=6000,MAX_ARROW_RENDER_POINTS=1800;
     private final MapView view;private final SharedPreferences prefs;private MapLibreMap map;private Style style;
     private List<org.osmdroid.util.GeoPoint> route=Collections.emptyList(),approach=Collections.emptyList(),recordingRoute=Collections.emptyList();private Location location,headingFix;
-    private long routeSignature=Long.MIN_VALUE,approachSignature=Long.MIN_VALUE,recordingSignature=Long.MIN_VALUE,lastCameraMs,lastPositionFrameMs;\n    private Location visualLocation;
+    private long routeSignature=Long.MIN_VALUE,approachSignature=Long.MIN_VALUE,recordingSignature=Long.MIN_VALUE,lastCameraMs,lastPositionFrameMs;
+    private Location visualLocation;
     private boolean follow=true,heading=true,destroyed,visible=true,bearingReady,guidingMode;
     private double bearing;private String styleUri;private float actionDistance=Float.MAX_VALUE;
     private List<RouteStore.Event> events=Collections.emptyList();private int eventsSignature=Integer.MIN_VALUE;
