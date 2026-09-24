@@ -53,7 +53,7 @@ final class ModernMapController {
             s.addLayer(new SymbolLayer("approach-arrows-layer","approach-arrows").withProperties(symbolPlacement("line"),symbolSpacing(50f),iconImage("direction"),iconSize(.96f),iconAllowOverlap(false),iconKeepUpright(false),iconRotationAlignment("map"),iconOpacity(1f)));
             s.addLayer(new SymbolLayer("user","position").withProperties(iconImage("truck"),iconAllowOverlap(true),iconIgnorePlacement(true),iconSize(.80f)));
             s.addLayer(new CircleLayer("marker-dots","events").withProperties(circleColor(String.format(Locale.US,"#%06X",(0xFFFFFF&prefs.getInt("marker_color",ct.peach)))),circleRadius(6f),circleStrokeColor(hex(ct.mantle)),circleStrokeWidth(2f)));
-            s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(hex(ct.text)),textHaloColor(hex(ct.mantle)),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f])));
+            s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(hex(ct.text)),textHaloColor(hex(ct.mantle)),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f})));
             renderRoute();renderApproach();renderEvents();update(location,false,Float.MAX_VALUE);
         });
     }
