@@ -53,23 +53,23 @@ final class ModernMapController {
         map.setStyle(new Style.Builder().fromUri(requested),s->{if(destroyed||!requested.equals(styleUri))return;style=s;
             s.addSource(empty("route"));s.addSource(empty("arrows"));s.addSource(empty("approach"));s.addSource(empty("approach-arrows"));s.addSource(empty("events"));s.addSource(empty("position"));
             s.addImage("truck",userIcon);s.addImage("direction",arrow());
-            int routeColor=prefs.getInt("route_color",prefs.getInt("accent_color",0xff89b4fa));String routeHex=String.format(Locale.US,"#%06X",(0xFFFFFF&routeColor));
+            CatppuccinTheme.Tokens ct=CatppuccinTheme.from(prefs);int routeColor=prefs.getInt("route_color",ct.accent);String routeHex=String.format(Locale.US,"#%06X",(0xFFFFFF&routeColor));
             s.addLayer(new LineLayer("route-glow","route").withProperties(lineColor(routeHex),lineWidth(19f),lineOpacity(.24f),lineJoin("round"),lineCap("round")));
-            s.addLayer(new LineLayer("route-casing","route").withProperties(lineColor(MapStyles.dark(prefs)?"#090b12":"#ffffff"),lineWidth(14f),lineOpacity(.98f),lineJoin("round"),lineCap("round")));
+            s.addLayer(new LineLayer("route-casing","route").withProperties(lineColor(hex(ct.crust)),lineWidth(14f),lineOpacity(.98f),lineJoin("round"),lineCap("round")));
             s.addLayer(new LineLayer("route-line","route").withProperties(lineColor(routeHex),lineWidth(9f),lineJoin("round"),lineCap("round")));
             s.addLayer(new SymbolLayer("route-arrows","arrows").withProperties(symbolPlacement("line"),symbolSpacing(46f),iconImage("direction"),iconSize(1.05f),iconAllowOverlap(false),iconKeepUpright(false),iconRotationAlignment("map"),iconOpacity(1f)));
-            s.addLayer(new LineLayer("approach-glow","approach").withProperties(lineColor("#94e2d5"),lineWidth(16f),lineOpacity(.20f),lineJoin("round"),lineCap("round")));
-            s.addLayer(new LineLayer("approach-casing","approach").withProperties(lineColor("#071f22"),lineWidth(12f),lineOpacity(.96f),lineJoin("round"),lineCap("round")));
+            s.addLayer(new LineLayer("approach-glow","approach").withProperties(lineColor(hex(ct.teal)),lineWidth(16f),lineOpacity(.20f),lineJoin("round"),lineCap("round")));
+            s.addLayer(new LineLayer("approach-casing","approach").withProperties(lineColor(hex(ct.crust)),lineWidth(12f),lineOpacity(.96f),lineJoin("round"),lineCap("round")));
             s.addLayer(new LineLayer("approach-line","approach").withProperties(lineColor("#94e2d5"),lineWidth(8f),lineJoin("round"),lineCap("round")));
             s.addLayer(new SymbolLayer("approach-arrows-layer","approach-arrows").withProperties(symbolPlacement("line"),symbolSpacing(50f),iconImage("direction"),iconSize(.96f),iconAllowOverlap(false),iconKeepUpright(false),iconRotationAlignment("map"),iconOpacity(1f)));
             s.addLayer(new SymbolLayer("user","position").withProperties(iconImage("truck"),iconAllowOverlap(true),iconIgnorePlacement(true),iconSize(.80f)));
-            s.addLayer(new CircleLayer("marker-dots","events").withProperties(circleColor(String.format(Locale.US,"#%06X",(0xFFFFFF&prefs.getInt("marker_color",0xfffab387)))),circleRadius(6f),circleStrokeColor("#181825"),circleStrokeWidth(2f)));
-            s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(MapStyles.dark(prefs)?"#f5f3ff":"#312d40"),textHaloColor(MapStyles.dark(prefs)?"#181825":"#ffffff"),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f})));
+            s.addLayer(new CircleLayer("marker-dots","events").withProperties(circleColor(String.format(Locale.US,"#%06X",(0xFFFFFF&prefs.getInt("marker_color",ct.peach)))),circleRadius(6f),circleStrokeColor(hex(ct.mantle)),circleStrokeWidth(2f)));
+            s.addLayer(new SymbolLayer("marker-labels","events").withProperties(textField(org.maplibre.android.style.expressions.Expression.get("label")),textSize(12f),textColor(hex(ct.text)),textHaloColor(hex(ct.mantle)),textHaloWidth(2f),textOffset(new Float[]{0f,1.5f})));
             renderRoute();renderApproach();renderEvents();update(location,false,Float.MAX_VALUE);
         });
     }
 
-    private static GeoJsonSource empty(String id){return new GeoJsonSource(id,FeatureCollection.fromFeatures(new Feature[0]));}
+    private static String hex(int color){return String.format(Locale.US,"#%06X",(0xFFFFFF&color));}\n    private static GeoJsonSource empty(String id){return new GeoJsonSource(id,FeatureCollection.fromFeatures(new Feature[0]));}
     private Bitmap arrow(){Bitmap b=Bitmap.createBitmap(44,34,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.WHITE);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(7);p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);p.setShadowLayer(3,0,1,Color.BLACK);Path path=new Path();path.moveTo(11,6);path.lineTo(29,17);path.lineTo(11,28);c.drawPath(path,p);return b;}
 
     void setRoute(List<org.osmdroid.util.GeoPoint> points){List<org.osmdroid.util.GeoPoint> next=points==null?Collections.emptyList():points;long signature=signature(next);if(signature==routeSignature)return;routeSignature=signature;route=new ArrayList<>(next);if(visible)renderRoute();}
