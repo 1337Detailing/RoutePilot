@@ -64,13 +64,23 @@ public final class TrackingService extends Service implements LocationListener {
     @Override public int onStartCommand(Intent intent,int flags,int id){
         try{promote();if(ready)subscribe();return START_STICKY;}catch(RuntimeException e){DiagnosticLog.error("foreground start",e);stopSelf();return START_NOT_STICKY;}
     }
-    private void promote(){if(foreground)return;Intent open=new Intent(this,RoutixActivity.class);PendingIntent pending=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification n=new NotificationCompat.Builder(this,"tracking").setSmallIcon(R.drawable.ic_tracking).setColor(CatppuccinTheme.from(this).accent).setContentTitle("Routix · tournée active").setContentText("Suivi GPS adaptatif actif. Toucher pour reprendre.").setContentIntent(pending).setOngoing(true).setOnlyAlertOnce(true).build();
+    private Notification trackingNotification(){
+        Intent open=new Intent(this,RoutixActivity.class);PendingIntent pending=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+        String title="Routix · tournée active",text="Suivi GPS adaptatif actif. Toucher pour reprendre.";int progress=0;
+        if(guidance!=null&&guidanceState!=null){progress=guidanceState.progressPercent;title="Routix · "+progress+" %";text=formatIslandDistance(guidanceState.remainingM)+" restant";if(guidanceState.nextEvent!=null&&guidanceState.distanceToNextEventM<1000)text+=" · "+guidanceState.nextEvent.label;}
+        NotificationCompat.Builder b=new NotificationCompat.Builder(this,"tracking").setSmallIcon(R.drawable.ic_tracking).setColor(CatppuccinTheme.from(this).accent).setContentTitle(title).setContentText(text).setContentIntent(pending).setOngoing(true).setOnlyAlertOnce(true).setSilent(true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+        if(guidance!=null)b.addExtras(OriginIslandCompat.guidance(this,title,text,progress));
+        return b.build();
+    }
+    private static String formatIslandDistance(float meters){if(!Float.isFinite(meters))return "—";return meters>=1000?String.format(Locale.FRANCE,"%.1f km",meters/1000f):Math.round(Math.max(0,meters))+" m";}
+    private void promote(){if(foreground)return;OriginIslandCompat.registerScene(this);Notification n=trackingNotification();
         if(Build.VERSION.SDK_INT>=29)startForeground(71,n,android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);else startForeground(71,n);foreground=true;
     }
+    private void updateTrackingNotification(){if(!foreground)return;try{((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(71,trackingNotification());}catch(RuntimeException e){DiagnosticLog.error("tracking notification update",e);}}
+
     private boolean activate(){try{ContextCompat.startForegroundService(this,new Intent(this,TrackingService.class));promote();subscribe();return subscribed;}catch(RuntimeException ex){DiagnosticLog.error("tracking activation",ex);return false;}}
     void observe(Listener l){listener=l;visible=l!=null;if(visible){if(recording||guidance!=null)activate();else subscribe();publish();}else if(!recording&&guidance==null)unsubscribe();}
-    private void publish(){if(listener!=null)try{listener.changed();}catch(RuntimeException e){DiagnosticLog.error("UI observer",e);}}
+    private void publish(){updateTrackingNotification();if(listener!=null)try{listener.changed();}catch(RuntimeException e){DiagnosticLog.error("UI observer",e);}}
     private void publishLocation(boolean moving){if(listener==null)return;long now=SystemClock.elapsedRealtime();long min=prefs.getBoolean("battery_saver",true)?(moving?900:3000):500;if(now-lastUiPublishMs<min)return;lastUiPublishMs=now;publish();}
     private void write(Runnable task){try{io.execute(()->{try{task.run();}catch(RuntimeException e){DiagnosticLog.error("session persistence",e);if(!closed)main.post(()->android.widget.Toast.makeText(this,"Sauvegarde impossible : vérifie le stockage. Exporte le diagnostic.",android.widget.Toast.LENGTH_LONG).show());}});}catch(RejectedExecutionException e){DiagnosticLog.error("session persistence rejected",e);}}
     private void ensureSpeech(){if(speech!=null||closed||!prefs.getBoolean("voice_markers",true))return;speechReady=false;speech=new TextToSpeech(this,status->{if(closed)return;speechReady=status==TextToSpeech.SUCCESS;if(speechReady&&speech!=null)speech.setLanguage(Locale.FRANCE);});}
