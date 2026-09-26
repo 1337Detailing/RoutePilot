@@ -21,7 +21,7 @@ final class OriginIslandCompat {
         if(!isVivo())return;
         try{
             NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);
-            java.lang.reflect.Method method=NotificationManager.class.getMethod("setSuperXInfosSceneList",java.util.MutableList.class,java.util.MutableList.class,java.util.MutableList.class,java.util.MutableList.class);
+            java.lang.reflect.Method method=NotificationManager.class.getMethod("setSuperXInfosSceneList",java.util.List.class,java.util.List.class,java.util.List.class,java.util.List.class);
             method.invoke(nm,new ArrayList<>(java.util.Collections.singletonList(SCENE)),new ArrayList<>(java.util.Collections.singletonList("true")),new ArrayList<>(java.util.Collections.singletonList(context.getPackageName())),new ArrayList<>(java.util.Collections.singletonList("true")));
         }catch(Throwable ignored){}
     }
