@@ -145,7 +145,7 @@ public class RoutixActivity extends AppCompatActivity {
 
     private void showTab(String key,boolean animate){
         selectedTab=key;contentHost.animate().cancel();contentHost.setAlpha(1);contentHost.setTranslationY(0);contentHost.setScaleX(1);contentHost.setScaleY(1);contentHost.removeAllViews();boolean mapMode="map".equals(key);map.setVisibility(mapMode&&offline?View.VISIBLE:View.GONE);if(modern!=null)modern.setVisible(mapMode&&!offline);topBar.setVisibility(View.VISIBLE);if(mapLogo!=null)mapLogo.setVisibility(mapMode&&false?View.VISIBLE:View.GONE);
-        if(mapMode){contentHost.addView(mapCard());}else if("record".equals(key))contentHost.addView(recordPage());else if("routes".equals(key))contentHost.addView(routesPage());else if("detail".equals(key)&&detailFile!=null)contentHost.addView(routeDetailPage(detailFile));else if("hours".equals(key))contentHost.addView(hoursPage());else if("gpxlab".equals(key))contentHost.addView(gpxLabPage());else if("planlab".equals(key))contentHost.addView(planLabPage());else if("settings".equals(key))contentHost.addView(settingsPage());else if("more".equals(key))contentHost.addView(morePage());recordSheet="record".equals(key)?contentHost:null;updateDock();positionChrome();
+        if(mapMode){contentHost.addView(mapCard());}else if("record".equals(key))contentHost.addView(recordPage());else if("routes".equals(key))contentHost.addView(routesPage());else if("detail".equals(key)&&detailFile!=null)contentHost.addView(routeDetailPage(detailFile));else if("hours".equals(key))contentHost.addView(hoursPage());else if("gpxlab".equals(key))contentHost.addView(gpxLabPage());else if("planlab".equals(key))contentHost.addView(planLabPage());else if("settings".equals(key))contentHost.addView(settingsPage());else if("stats".equals(key))contentHost.addView(statsPage());else if("more".equals(key))contentHost.addView(morePage());recordSheet="record".equals(key)?contentHost:null;updateDock();positionChrome();
         if(mapMode&&guiding&&tracker!=null)updateRouteGuidance(lastLocation);if(animate&&CatppuccinTheme.motion(prefs)&&!(guiding&&prefs.getBoolean("battery_saver",true))){int d=animDuration();contentHost.setAlpha(0);contentHost.setTranslationY(dp((CatppuccinTheme.motion(prefs)&&prefs.getBoolean("rich_animations",false))?20:8));contentHost.setScaleX((CatppuccinTheme.motion(prefs)&&prefs.getBoolean("rich_animations",false))?.982f:1f);contentHost.setScaleY((CatppuccinTheme.motion(prefs)&&prefs.getBoolean("rich_animations",false))?.982f:1f);contentHost.animate().alpha(1).translationY(0).scaleX(1).scaleY(1).setDuration(d).start();}
     }
     private void updateDock(){ViewGroup r=(ViewGroup)dock;for(int i=0;i<r.getChildCount();i++){TextView t=(TextView)r.getChildAt(i);boolean on=selectedTab.equals(t.getTag())||("routes".equals(t.getTag())&&"detail".equals(selectedTab))||("more".equals(t.getTag())&&!"map".equals(selectedTab)&&!"record".equals(selectedTab)&&!"routes".equals(selectedTab)&&!"detail".equals(selectedTab));t.setTextColor(on?accent:MUTED);TerrainIcon symbol=new TerrainIcon(String.valueOf(t.getTag()),on?accent:MUTED);symbol.setBounds(0,0,dp(22),dp(22));t.setCompoundDrawables(null,symbol,null,null);t.setBackground(on?surface(SURFACE2,12):null);if((CatppuccinTheme.motion(prefs)&&prefs.getBoolean("rich_animations",false))&&!(guiding&&prefs.getBoolean("battery_saver",true)))t.animate().scaleX(on?1.055f:1f).scaleY(on?1.055f:1f).setDuration(180).start();}}
@@ -270,9 +270,26 @@ public class RoutixActivity extends AppCompatActivity {
     }
 
     private View morePage(){ScrollView sv=new ScrollView(this);LinearLayout p=page("Plus","Les outils utiles, à portée de main.");
-        menu(p,"Heures travaillées","Saisie et total du mois",()->showTab("hours",true));menu(p,"Réglages","Carte, apparence et guidage",()->showTab("settings",true));
+        menu(p,"Heures travaillées","Saisie et total du mois",()->showTab("hours",true));menu(p,"Statistiques","Historique et cumul des tournées",()->showTab("stats",true));menu(p,"Réglages","Carte, apparence et guidage",()->showTab("settings",true));
         menu(p,"Cartes hors ligne","Packs régionaux français",this::offlineMenu);menu(p,"Exporter le diagnostic","Rapport technique sans trace GPS",this::exportDiagnostics);
         TextView advanced=pill("Avancé  ⌄",SURFACE2);p.addView(advanced,new LinearLayout.LayoutParams(-1,dp(52)));LinearLayout extra=new LinearLayout(this);extra.setOrientation(LinearLayout.VERTICAL);extra.setVisibility(View.GONE);menu(extra,"GPX Lab","Analyse et nettoyage des imports",()->showTab("gpxlab",true));menu(extra,"Plan → tournée (bêta)","Teste la détection des portions colorées d’un plan",()->showTab("planlab",true));p.addView(extra);advanced.setOnClickListener(v->extra.setVisibility(extra.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));sv.addView(p);return sv;}
+    private View statsPage(){
+        ScrollView sv=new ScrollView(this);LinearLayout p=page("Statistiques","Historique local des tournées terminées.");
+        List<SessionStatsStore.Entry> entries=new SessionStatsStore(prefs).entries();
+        long totalDuration=SessionStatsStore.totalDuration(entries);double totalDistance=SessionStatsStore.totalDistance(entries);
+        double avgKmh=totalDuration>0?(totalDistance/1000d)/(totalDuration/3600000d):0;
+        LinearLayout summary=new LinearLayout(this);summary.setPadding(0,0,0,dp(10));
+        summary.addView(bigMetric(String.valueOf(entries.size()),"TOURNÉES",BLUE),new LinearLayout.LayoutParams(0,dp(100),1));
+        LinearLayout.LayoutParams sm=new LinearLayout.LayoutParams(0,dp(100),1);sm.leftMargin=dp(8);summary.addView(bigMetric(formatDistance(totalDistance),"DISTANCE",GREEN),sm);
+        p.addView(summary);
+        LinearLayout totals=new LinearLayout(this);
+        totals.addView(bigMetric(formatDuration(totalDuration),"DURÉE",MAUVE),new LinearLayout.LayoutParams(0,dp(100),1));
+        LinearLayout.LayoutParams av=new LinearLayout.LayoutParams(0,dp(100),1);av.leftMargin=dp(8);totals.addView(bigMetric(String.format(Locale.FRANCE,"%.1f km/h",avgKmh),"MOYENNE",PEACH),av);p.addView(totals);
+        p.addView(section("Historique"));
+        if(entries.isEmpty())p.addView(infoCard("Aucune tournée terminée","Les prochaines tournées terminées apparaîtront automatiquement ici."));
+        else for(int i=0;i<Math.min(30,entries.size());i++){SessionStatsStore.Entry e=entries.get(i);String name=e.route.isEmpty()?"Tournée":e.route.replaceFirst("\\.gpx$","");String body=formatDate(e.started)+" • "+formatDistance(e.distanceM)+" • "+formatDuration(e.durationMs);p.addView(infoCard(name,body));}
+        sv.addView(p);return sv;
+    }
     private void menu(LinearLayout p,String title,String subtitle,Runnable action){LinearLayout row=settingsRow(title,subtitle);row.setMinimumHeight(dp(64));row.setOnClickListener(v->action.run());p.addView(row);}
     private View settingsPage(){
         ScrollView sv=new ScrollView(this);LinearLayout p=page("Réglages","À ton rythme. À tes couleurs.");
@@ -402,7 +419,7 @@ public class RoutixActivity extends AppCompatActivity {
     private void showFinishSummary(){
         if(tracker==null||guidingRoute==null||isFinishing())return;
         long end=System.currentTimeMillis(),start=tracker.guidanceStartedAt>0?tracker.guidanceStartedAt:end;long duration=Math.max(0,end-start);
-        double travelled=tracker.guidanceTravelDistance;int reverse=0,two=0;for(RouteStore.Event e:guidingRoute.events){if("REVERSE".equals(e.type))reverse++;else if("TWO_SIDES".equals(e.type))two++;}
+        double travelled=tracker.guidanceTravelDistance;int reverse=0,two=0;for(RouteStore.Event e:guidingRoute.events){if("REVERSE".equals(e.type))reverse++;else if("TWO_SIDES".equals(e.type))two++;}new SessionStatsStore(prefs).add(new SessionStatsStore.Entry(start,end,duration,travelled,0,tracker.guidanceReverseAdded,tracker.guidanceTwoSidesAdded,store.displayName(guidingRoute.file)));
         LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(20),dp(20),dp(20),dp(12));panel.setBackground(surface(SURFACE,28));
         panel.addView(text("Tournée terminée",27,Typeface.BOLD,TEXT));TextView sub=text(formatClock(start)+" → "+formatClock(end),12,Typeface.NORMAL,MUTED);sub.setPadding(0,dp(4),0,dp(14));panel.addView(sub);
         RoutePreviewView preview=new RoutePreviewView(this);preview.setPoints(guidingRoute.points);panel.addView(preview,new LinearLayout.LayoutParams(-1,dp(135)));
