@@ -79,6 +79,21 @@ public class GuidanceEngineTest {
         assertFalse(e.reposition(Double.NaN,here.lon));
         assertEquals(800,fix(e,800,0,6000).remainingM,3);
     }
+    @Test public void skippedPointReacquiresForwardWithoutUTurn(){
+        GuidanceEngine e=engine(p(0,0),p(100,0),p(200,0),p(300,0),p(400,0));fix(e,0,0,1000);fix(e,40,0,3000);
+        GuidanceEngine.State s=fix(e,230,0,9000);assertTrue(s.rerouted);assertFalse(s.offRoute);assertTrue(s.alongRouteM>200);
+        assertNotEquals(2,e.nextManeuver(s).direction);
+    }
+    @Test public void severalSkippedPointsReacquireFartherForward(){
+        GuidanceEngine e=engine(p(0,0),p(100,0),p(200,0),p(300,0),p(400,0),p(500,0),p(600,0));fix(e,0,0,1000);fix(e,30,0,3000);
+        GuidanceEngine.State s=fix(e,520,0,15000);assertTrue(s.rerouted);assertFalse(s.offRoute);assertTrue(s.remainingM<100);
+    }
+    @Test public void badGpsDuringReacquisitionNeverChangesProgress(){
+        GuidanceEngine e=engine(p(0,0),p(100,0),p(200,0),p(300,0),p(400,0));fix(e,0,0,1000);GuidanceEngine.State before=fix(e,30,0,3000);
+        GuidanceEngine.Point q=p(250,0);GuidanceEngine.State bad=e.update(q.lat,q.lon,9000,90);assertTrue(bad.poorAccuracy);assertFalse(bad.rerouted);assertEquals(before.alongRouteM,bad.alongRouteM,.1);
+        GuidanceEngine.State recovered=fix(e,250,0,12000);assertTrue(recovered.rerouted);assertTrue(recovered.alongRouteM>240);
+    }
+
     @Test public void nextManeuverFindsRightAndLeftTurnsAhead(){
         GuidanceEngine right=engine(p(0,0),p(100,0),p(100,-100));
         GuidanceEngine.State rs=fix(right,0,0,1000);
