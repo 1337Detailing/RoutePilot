@@ -127,8 +127,8 @@ public class RoutixActivity extends AppCompatActivity {
     private View buildTopBar(){
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(10),dp(6),dp(8),dp(6));bar.setBackground(surface(SURFACE,24));bar.setElevation(dp(2));
         headerSpeed=new CompactSpeedometer(this);bar.addView(headerSpeed,new LinearLayout.LayoutParams(dp(116),dp(50)));
-        TextView status=text("routix.\nTes tournées.",12f,Typeface.BOLD,MUTED);status.setMaxLines(2);status.setEllipsize(android.text.TextUtils.TruncateAt.END);status.setPadding(dp(7),0,dp(8),0);
-        LinearLayout.LayoutParams statusLp=new LinearLayout.LayoutParams(0,-2,1);statusLp.width=0;bar.addView(status,statusLp);
+        TextView status=text("GPS",11f,Typeface.BOLD,MUTED);status.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);status.setContentDescription("État GPS");status.setPadding(dp(7),0,dp(8),0);
+        LinearLayout.LayoutParams statusLp=new LinearLayout.LayoutParams(0,-1,1);statusLp.width=0;bar.addView(status,statusLp);
         return bar;
     }
     private View buildMapControls(){
