@@ -3,4 +3,5 @@
     <files-path name="routes" path="routes/" />
     <cache-path name="paper_plans" path="paper-plans/" />
     <cache-path name="diagnostics" path="reports/" />
+    <cache-path name="updates" path="updates/" />
 </paths>
